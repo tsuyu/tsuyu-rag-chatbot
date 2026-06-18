@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO messages (session_id, role, content) VALUES ($1, 'assistant', $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a67ae0869cec6447e6296f37218875d8f3717b2b099aa09277752a567b46565"
+}

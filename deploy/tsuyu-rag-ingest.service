@@ -1,0 +1,13 @@
+[Unit]
+Description=TSUYU RAG — ingest dokumen (oneshot)
+After=network.target postgresql.service ollama.service
+Wants=postgresql.service ollama.service
+
+[Service]
+Type=oneshot
+User=tsuyu
+WorkingDirectory=/opt/tsuyu-rag
+# Muat .env dari laluan mutlak (sama seperti servis utama)
+EnvironmentFile=/opt/tsuyu-rag/.env
+# Jalankan ingest tokokan sekali lalu keluar. Tambah `--force` jika perlu proses semula semua.
+ExecStart=/opt/tsuyu-rag/tsuyu-rag-chatbot ingest

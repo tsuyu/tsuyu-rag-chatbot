@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pengurusan Dokumen — TSUYU RAG</title>
+  <style>
+    :root { --hijau:#1b5e20; --hijau2:#2e7d32; --kelabu:#f5f5f5; --garis:#e0e0e0; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+           margin:0; background:var(--kelabu); color:#222; }
+    header { background:var(--hijau); color:#fff; padding:14px 20px; display:flex;
+             align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+    header h1 { font-size:1.15rem; margin:0; }
+    header a { color:#c8e6c9; text-decoration:none; font-size:.9rem; }
+    main { max-width:1000px; margin:20px auto; padding:0 16px; }
+    .kad { background:#fff; border:1px solid var(--garis); border-radius:8px;
+           padding:16px; margin-bottom:16px; }
+    .kad h2 { font-size:1rem; margin:0 0 12px; color:var(--hijau2); }
+    label { font-size:.85rem; display:block; margin-bottom:4px; color:#555; }
+    input[type=password], input[type=text] { width:100%; padding:8px; border:1px solid var(--garis);
+           border-radius:6px; font-size:.95rem; }
+    .baris { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; }
+    .baris > div { flex:1; min-width:180px; }
+    button { background:var(--hijau2); color:#fff; border:0; border-radius:6px;
+             padding:9px 14px; font-size:.9rem; cursor:pointer; }
+    button:hover { background:var(--hijau); }
+    button.kedua { background:#fff; color:var(--hijau2); border:1px solid var(--hijau2); }
+    button.bahaya { background:#fff; color:#c62828; border:1px solid #c62828; padding:4px 9px; font-size:.8rem; }
+    button.bahaya:hover { background:#c62828; color:#fff; }
+    table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--garis); vertical-align:top; }
+    th { color:#555; font-weight:600; background:#fafafa; }
+    .info { font-size:.8rem; color:#666; }
+    .status { font-size:.85rem; padding:8px 10px; border-radius:6px; margin-top:8px; display:none; }
+    .status.ok { background:#e8f5e9; color:#1b5e20; display:block; }
+    .status.ralat { background:#ffebee; color:#b71c1c; display:block; }
+    .status.sibuk { background:#fff8e1; color:#795548; display:block; }
+    .pil { display:inline-block; padding:1px 7px; border-radius:10px; font-size:.72rem;
+           background:#eef; color:#334; }
+    .sulit { background:#ffebee; color:#b71c1c; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📁 Pengurusan Dokumen TSUYU RAG</h1>
+    <a href="/">← Kembali ke chat</a>
+  </header>
+
+  <main>
+    <div class="kad">
+      <h2>Sambungan</h2>
+      <div class="baris">
+        <div>
+          <label for="key">Kunci API admin (Bearer)</label>
+          <input type="password" id="key" placeholder="{% if auth_required %}Masukkan ADMIN_API_KEY{% else %}(pengesahan dimatikan — boleh dikosongkan){% endif %}">
+        </div>
+        <div style="flex:0 0 auto;">
+          <button onclick="sambung()">Sambung &amp; muat senarai</button>
+        </div>
+      </div>
+      <p class="info">Konfigurasi pelayan: model jana <b>{{ gen_model }}</b>, embed <b>{{ embed_model }}</b>,
+         folder dokumen <code>{{ docs_dir }}</code>.</p>
+    </div>
+
+    <div class="kad">
+      <h2>Ingest dokumen</h2>
+      <p class="info">Letak fail (.pdf/.docx/.txt/.md) dalam folder dokumen pelayan, kemudian cetuskan ingest.
+         Ingest biasa melangkau fail yang tidak berubah; paksa memproses semula semua fail.</p>
+      <div class="baris" style="margin-top:8px;">
+        <div style="flex:0 0 auto;"><button onclick="ingest(false)">Ingest (tokokan)</button></div>
+        <div style="flex:0 0 auto;"><button class="kedua" onclick="ingest(true)">Ingest paksa (semua)</button></div>
+      </div>
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="kad">
+      <h2>Kad Watak (persona pembantu)</h2>
+      <p class="info">Tala personaliti pembantu. Perubahan berkuat kuasa serta-merta untuk soalan seterusnya.</p>
+      <div class="baris">
+        <div><label>Nama</label><input type="text" id="cName" placeholder="cth. Ayu"></div>
+        <div><label>Peranan</label><input type="text" id="cRole" placeholder="cth. Pembantu pegawai TSUYU"></div>
+      </div>
+      <div class="baris">
+        <div><label>Nada</label><input type="text" id="cTone" placeholder="cth. Formal tetapi mesra"></div>
+        <div><label>Bahasa</label><input type="text" id="cLang" placeholder="Bahasa Malaysia"></div>
+      </div>
+      <div class="baris">
+        <div>
+          <label>Panjang jawapan</label>
+          <select id="cVerbosity" style="width:100%;padding:8px;border:1px solid var(--garis);border-radius:6px;">
+            <option value="short">Ringkas</option>
+            <option value="medium">Sederhana</option>
+            <option value="long">Terperinci</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto;align-self:center;padding-top:18px;">
+          <label style="display:inline;"><input type="checkbox" id="cEmoji"> Benarkan emoji</label>
+        </div>
+      </div>
+      <div style="margin-top:8px;">
+        <label>Peraturan khas (satu setiap baris)</label>
+        <textarea id="cRules" rows="3" style="width:100%;padding:8px;border:1px solid var(--garis);border-radius:6px;font-family:inherit;"
+          placeholder="Sentiasa gunakan istilah rasmi kerajaan&#10;Berikan rujukan dokumen jika ada"></textarea>
+      </div>
+      <div class="baris" style="margin-top:8px;">
+        <div style="flex:0 0 auto;"><button onclick="simpanWatak()">Simpan persona</button></div>
+        <div style="flex:0 0 auto;"><button class="kedua" onclick="loadWatak()">Muat semula</button></div>
+      </div>
+      <div id="statusWatak" class="status"></div>
+    </div>
+
+    <div class="kad">
+      <h2>Senarai dokumen</h2>
+      <div id="doctable">
+        <p class="info">Masukkan kunci dan klik “Sambung &amp; muat senarai”.</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const KEY_STORE = "tsuyu_admin_key";
+
+    function getKey() {
+      const f = document.getElementById("key").value.trim();
+      return f || sessionStorage.getItem(KEY_STORE) || "";
+    }
+    function headers() {
+      const k = getKey();
+      return k ? { "Authorization": "Bearer " + k } : {};
+    }
+    function setStatus(kelas, teks) {
+      const s = document.getElementById("status");
+      s.className = "status " + kelas;
+      s.textContent = teks;
+    }
+
+    function sambung() {
+      const k = document.getElementById("key").value.trim();
+      if (k) sessionStorage.setItem(KEY_STORE, k);
+      loadDocs();
+      loadWatak();
+    }
+
+    function setStatusWatak(kelas, teks) {
+      const s = document.getElementById("statusWatak");
+      s.className = "status " + kelas;
+      s.textContent = teks;
+    }
+
+    async function loadWatak() {
+      try {
+        const r = await fetch("/admin/character", { headers: headers() });
+        if (!r.ok) { setStatusWatak("ralat", "Gagal muat persona (" + r.status + ")."); return; }
+        const c = await r.json();
+        document.getElementById("cName").value = c.name || "";
+        document.getElementById("cRole").value = c.role || "";
+        document.getElementById("cTone").value = c.tone || "";
+        document.getElementById("cLang").value = c.language || "";
+        document.getElementById("cVerbosity").value = c.verbosity || "medium";
+        document.getElementById("cEmoji").checked = !!c.emoji;
+        document.getElementById("cRules").value = (c.special_rules || []).join("\n");
+      } catch (e) {
+        setStatusWatak("ralat", "Gagal menghubungi pelayan.");
+      }
+    }
+
+    async function simpanWatak() {
+      const card = {
+        name: document.getElementById("cName").value.trim(),
+        role: document.getElementById("cRole").value.trim(),
+        tone: document.getElementById("cTone").value.trim(),
+        language: document.getElementById("cLang").value.trim(),
+        verbosity: document.getElementById("cVerbosity").value,
+        emoji: document.getElementById("cEmoji").checked,
+        special_rules: document.getElementById("cRules").value
+          .split("\n").map(s => s.trim()).filter(Boolean),
+      };
+      setStatusWatak("sibuk", "Menyimpan…");
+      try {
+        const r = await fetch("/admin/character", {
+          method: "PUT",
+          headers: Object.assign({ "Content-Type": "application/json" }, headers()),
+          body: JSON.stringify(card),
+        });
+        if (r.status === 401) { setStatusWatak("ralat", "Kunci admin diperlukan."); return; }
+        if (!r.ok) { setStatusWatak("ralat", "Gagal simpan (" + r.status + ")."); return; }
+        setStatusWatak("ok", "Persona disimpan & berkuat kuasa.");
+      } catch (e) {
+        setStatusWatak("ralat", "Gagal menghubungi pelayan.");
+      }
+    }
+
+    async function loadDocs() {
+      const box = document.getElementById("doctable");
+      box.innerHTML = '<p class="info">Memuat…</p>';
+      try {
+        const r = await fetch("/admin/documents", { headers: headers() });
+        if (r.status === 401) { box.innerHTML = '<p class="info">Kunci tidak sah atau tiada. Sila masukkan kunci admin.</p>'; return; }
+        if (!r.ok) { box.innerHTML = '<p class="info">Ralat memuat senarai (' + r.status + ').</p>'; return; }
+        box.innerHTML = await r.text();
+      } catch (e) {
+        box.innerHTML = '<p class="info">Gagal menghubungi pelayan.</p>';
+      }
+    }
+
+    async function ingest(force) {
+      setStatus("sibuk", force ? "Mengingest semula semua fail… (mungkin mengambil masa)" : "Mengingest fail baharu/berubah…");
+      try {
+        const url = "/admin/ingest" + (force ? "?force=true" : "");
+        const r = await fetch(url, { method: "POST", headers: headers() });
+        const teks = await r.text();
+        if (r.status === 401) { setStatus("ralat", "Kunci admin tidak sah atau tiada."); return; }
+        if (!r.ok) { setStatus("ralat", "Ingest gagal: " + teks); return; }
+        setStatus("ok", teks);
+        loadDocs();
+      } catch (e) {
+        setStatus("ralat", "Gagal menghubungi pelayan.");
+      }
+    }
+
+    async function padam(btn) {
+      const id = btn.dataset.id, nama = btn.dataset.nama;
+      if (!confirm("Padam dokumen \"" + nama + "\" dan semua chunknya?")) return;
+      try {
+        const r = await fetch("/admin/documents/" + id, { method: "DELETE", headers: headers() });
+        if (r.status === 401) { setStatus("ralat", "Kunci admin tidak sah atau tiada."); return; }
+        if (!r.ok) { setStatus("ralat", "Gagal padam (" + r.status + ")."); return; }
+        document.getElementById("doctable").innerHTML = await r.text();
+        setStatus("ok", "Dokumen dipadam.");
+      } catch (e) {
+        setStatus("ralat", "Gagal menghubungi pelayan.");
+      }
+    }
+
+    // Auto-muat jika kunci sudah disimpan dalam sesi ini.
+    window.addEventListener("DOMContentLoaded", () => {
+      const saved = sessionStorage.getItem(KEY_STORE);
+      if (saved) { document.getElementById("key").value = saved; loadDocs(); loadWatak(); }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+[Unit]
+Description=TSUYU RAG — jadual ingest dokumen harian
+
+[Timer]
+# Jalankan setiap hari 01:00 waktu tempatan. Laraskan ikut keperluan.
+OnCalendar=*-*-* 01:00:00
+# Jika pelayan mati semasa masa dijadualkan, jalankan sebaik sahaja ia hidup semula.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

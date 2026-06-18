@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TSUYU RAG Chatbot</title>
+  <style>
+    :root { --biru: #1565c0; --kelabu: #f0f2f5; --garis: #ddd; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 1rem;
+           color: #1a1a1a; background: #fafafa; }
+    h1 { font-size: 1.3rem; margin: 0.5rem 0; }
+    h3 { font-size: 1rem; margin: 1.2rem 0 0.4rem; }
+    .tetapan { background: #fff; border: 1px solid var(--garis); border-radius: 8px;
+               padding: 0.6rem 0.8rem; margin-bottom: 0.8rem; font-size: 0.85rem; color: #444; }
+    .tetapan label { margin-right: 1rem; }
+    .tetapan input[type=text], .tetapan input[type=password], .tetapan input[type=number] {
+      padding: 0.3rem; border: 1px solid var(--garis); border-radius: 4px; }
+    .baris { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
+
+    /* Perbualan */
+    #sembang { border: 1px solid var(--garis); border-radius: 8px; background: #fff;
+               min-height: 240px; max-height: 52vh; overflow-y: auto; padding: 0.8rem; }
+    .kosong { color: #999; text-align: center; margin-top: 5rem; }
+    .bubble { max-width: 85%; padding: 0.6rem 0.8rem; border-radius: 12px; margin: 0.4rem 0;
+              white-space: pre-wrap; word-wrap: break-word; line-height: 1.4; }
+    .pengguna { background: var(--biru); color: #fff; margin-left: auto; border-bottom-right-radius: 3px; }
+    .pembantu { background: var(--kelabu); color: #1a1a1a; margin-right: auto; border-bottom-left-radius: 3px; }
+    .sumber { font-size: 0.78rem; color: #555; margin: 0.1rem 0 0.6rem; }
+    .sumber ul { margin: 0.2rem 0; padding-left: 1.1rem; }
+    .sumber .snip { color: #777; font-style: italic; }
+    .menaip span { display: inline-block; width: 6px; height: 6px; margin: 0 1px; background: #999;
+                   border-radius: 50%; animation: bounce 1.2s infinite; }
+    .menaip span:nth-child(2) { animation-delay: 0.2s; }
+    .menaip span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+    /* Input */
+    .input-baris { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+    textarea { flex: 1; padding: 0.6rem; border: 1px solid var(--garis); border-radius: 8px;
+               resize: vertical; font-family: inherit; }
+    button { padding: 0.5rem 1rem; border: none; border-radius: 8px; background: var(--biru);
+             color: #fff; cursor: pointer; font-size: 0.9rem; }
+    button.kecil { padding: 0.25rem 0.6rem; font-size: 0.8rem; background: #666; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; font-size: 0.85rem; }
+    th, td { border: 1px solid var(--garis); padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: var(--kelabu); }
+    td button { background: #c62828; }
+    details summary { cursor: pointer; font-size: 0.85rem; color: #444; }
+
+    /* Bar alat + tindakan jawapan */
+    .bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0 0.2rem; }
+    .bar button { background: #455a64; }
+    .tindakan { margin: 0.15rem 0 0.2rem; }
+    .tindakan button.ikon { background: #e8eaed; color: #333; padding: 0.15rem 0.55rem;
+                            font-size: 0.72rem; border-radius: 6px; }
+    .tindakan button.ikon:hover { background: #d7dbe0; }
+
+    /* Susun atur cetak: sembunyi kawalan, tunjuk perbualan sahaja */
+    @media print {
+      body { max-width: none; background: #fff; padding: 0; }
+      .tetapan, .input-baris, .bar, .tindakan, #tajukDok, #senaraiDok, #muatDokBtn,
+      h1 a { display: none !important; }
+      #sembang { border: none; max-height: none; overflow: visible; padding: 0; }
+      .bubble { max-width: 100%; page-break-inside: avoid; border: 1px solid #ccc; }
+      .pengguna { background: #eee !important; color: #000 !important; }
+      .pembantu { background: #fff !important; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🌾 TSUYU RAG Chatbot &nbsp;<a href="/admin" style="font-size:.6em;font-weight:normal;">📁 Pengurusan dokumen</a></h1>
+
+  <details class="tetapan">
+    <summary>Tetapan</summary>
+    <div class="baris">
+      <label>API key:
+        <input id="apikey" type="password" placeholder="Bearer token" autocomplete="off" />
+      </label>
+      <label>
+        <input id="memori" type="checkbox" checked /> Ingat perbualan
+      </label>
+      <button class="kecil" onclick="resetSesi()">Mula sesi baru</button>
+    </div>
+    <div class="baris">
+      Tapis:
+      <input type="text" id="fCategory" placeholder="kategori" style="width:7rem;" />
+      <input type="text" id="fDepartment" placeholder="jabatan" style="width:9rem;" />
+      <input type="number" id="fYear" placeholder="tahun" style="width:5.5rem;" />
+      <input type="text" id="fSecurity" placeholder="keselamatan" style="width:8rem;" />
+    </div>
+  </details>
+
+  <div id="sembang">
+    <div class="kosong" id="kosong">Taip soalan anda dalam Bahasa Malaysia untuk bermula.</div>
+  </div>
+
+  <div class="bar">
+    <button class="kecil" onclick="cetak()" title="Cetak perbualan">🖨️ Cetak</button>
+    <button class="kecil" onclick="eksport('md')" title="Muat turun sebagai Markdown">⬇️ Eksport .md</button>
+    <button class="kecil" onclick="eksport('txt')" title="Muat turun sebagai teks biasa">⬇️ Eksport .txt</button>
+  </div>
+
+  <div class="input-baris">
+    <textarea id="soalan" rows="2" placeholder="Contoh: Berapa hari cuti tahunan kakitangan?"></textarea>
+    <button id="hantar" onclick="hantar()">Hantar</button>
+  </div>
+
+  <h3 id="tajukDok">Dokumen</h3>
+  <button id="muatDokBtn" class="kecil" onclick="muatDokumen()">Muat senarai dokumen</button>
+  <div id="senaraiDok"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const KEY_STORE = 'tsuyu_api_key';
+    const SID_STORE = 'tsuyu_session_id';
+
+    // Riwayat perbualan dalam sesi semasa (untuk cetak/eksport).
+    let riwayat = [];
+
+    // ID sesi untuk memori perbualan — kekal dalam localStorage merentas muat semula.
+    function sessionId() {
+      let sid = localStorage.getItem(SID_STORE);
+      if (!sid) {
+        sid = 'sesi-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        localStorage.setItem(SID_STORE, sid);
+      }
+      return sid;
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      $('apikey').value = localStorage.getItem(KEY_STORE) || '';
+      $('apikey').addEventListener('change', (e) => {
+        localStorage.setItem(KEY_STORE, e.target.value.trim());
+      });
+      sessionId();
+      // Enter untuk hantar; Shift+Enter untuk baris baru.
+      $('soalan').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); hantar(); }
+      });
+    });
+
+    function bacaFilter() {
+      const f = {};
+      const cat = $('fCategory').value.trim();
+      const dep = $('fDepartment').value.trim();
+      const thn = $('fYear').value.trim();
+      const sec = $('fSecurity').value.trim();
+      if (cat) f.category = cat;
+      if (dep) f.department = dep;
+      if (thn) f.year = parseInt(thn, 10);
+      if (sec) f.security = sec;
+      return Object.keys(f).length ? f : null;
+    }
+
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      const key = $('apikey').value.trim();
+      if (key) h['Authorization'] = 'Bearer ' + key;
+      return h;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // --- Pengurusan paparan perbualan ---
+    function tambahBubble(kelas, teks) {
+      $('kosong')?.remove();
+      const div = document.createElement('div');
+      div.className = 'bubble ' + kelas;
+      div.textContent = teks;
+      $('sembang').appendChild(div);
+      tatal();
+      return div;
+    }
+
+    function tatal() {
+      const s = $('sembang');
+      s.scrollTop = s.scrollHeight;
+    }
+
+    async function resetSesi() {
+      const sid = localStorage.getItem(SID_STORE);
+      if (sid) {
+        try { await fetch('/sessions/' + encodeURIComponent(sid), { method: 'DELETE', headers: headers() }); }
+        catch (_) {}
+      }
+      localStorage.removeItem(SID_STORE);
+      sessionId();
+      riwayat = [];
+      $('sembang').innerHTML = '<div class="kosong" id="kosong">Sesi baru dimulakan. Taip soalan anda.</div>';
+    }
+
+    async function hantar() {
+      const soalan = $('soalan').value.trim();
+      if (!soalan) return;
+
+      const butang = $('hantar');
+      butang.disabled = true;
+      $('soalan').value = '';
+
+      // Bubble pengguna + bubble pembantu (mula dengan penunjuk menaip).
+      tambahBubble('pengguna', soalan);
+      const balas = tambahBubble('pembantu', '');
+      balas.innerHTML = '<span class="menaip"><span></span><span></span><span></span></span>';
+
+      let teksJawapan = '';
+      let sumberHtml = '';
+      let sumberData = [];
+
+      try {
+        const badan = { question: soalan };
+        if ($('memori').checked) badan.session_id = sessionId();
+        const filter = bacaFilter();
+        if (filter) badan.filter = filter;
+
+        const res = await fetch('/chat/stream', {
+          method: 'POST', headers: headers(), body: JSON.stringify(badan)
+        });
+
+        if (res.status === 401) { balas.textContent = '⚠️ API key tidak sah atau tiada.'; return; }
+        if (!res.ok || !res.body) {
+          let msg = res.status;
+          try { const j = await res.json(); msg = j.error || msg; } catch (_) {}
+          balas.textContent = '⚠️ Ralat: ' + msg;
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        const papar = () => {
+          balas.innerHTML = (teksJawapan ? escapeHtml(teksJawapan) : '') + sumberHtml;
+          tatal();
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = buf.indexOf('\n\n')) !== -1) {
+            const raw = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            const ev = kendaliEvent(raw);
+            if (ev.type === 'token') { teksJawapan += ev.value; papar(); }
+            else if (ev.type === 'sources') { sumberHtml = ev.value; sumberData = ev.data || []; papar(); }
+            else if (ev.type === 'error') { teksJawapan += '\n⚠️ ' + ev.value; papar(); }
+          }
+        }
+
+        if (!teksJawapan) balas.innerHTML = '(tiada jawapan)' + sumberHtml;
+      } catch (e) {
+        balas.textContent = '⚠️ Ralat rangkaian: ' + e;
+      } finally {
+        butang.disabled = false;
+        $('soalan').focus();
+        // Rekod giliran ini + butang salin (jika ada jawapan sebenar).
+        if (teksJawapan) {
+          riwayat.push({ soalan, jawapan: teksJawapan, sumber: sumberData });
+          tambahButangSalin(balas, teksJawapan);
+        }
+      }
+    }
+
+    // Tambah butang "Salin" kecil di bawah kandungan bubble pembantu.
+    function tambahButangSalin(bubble, teks) {
+      const act = document.createElement('div');
+      act.className = 'tindakan';
+      const btn = document.createElement('button');
+      btn.className = 'ikon';
+      btn.textContent = '📋 Salin';
+      btn.onclick = async () => {
+        await salinTeks(teks);
+        btn.textContent = '✓ Disalin';
+        setTimeout(() => { btn.textContent = '📋 Salin'; }, 1500);
+      };
+      act.appendChild(btn);
+      bubble.appendChild(act);
+    }
+
+    // Salin teks ke papan klip, dengan fallback untuk pelayar lama.
+    async function salinTeks(teks) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(teks);
+          return;
+        }
+      } catch (_) { /* jatuh ke fallback */ }
+      const ta = document.createElement('textarea');
+      ta.value = teks;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (_) {}
+      document.body.removeChild(ta);
+    }
+
+    // Cetak perbualan (CSS @media print menyembunyi kawalan).
+    function cetak() {
+      if (!riwayat.length) { alert('Tiada perbualan untuk dicetak.'); return; }
+      window.print();
+    }
+
+    // Eksport perbualan sebagai .md atau .txt dan muat turun.
+    function eksport(format) {
+      if (!riwayat.length) { alert('Tiada perbualan untuk dieksport.'); return; }
+      const md = format === 'md';
+      // Cap masa "bila dieksport" — waktu tempatan pelayar pengguna.
+      const cap = new Date().toLocaleString('ms-MY');
+      const baris = [];
+      baris.push(md ? `# Perbualan TSUYU RAG\n\n_Dieksport: ${cap}_\n` : `Perbualan TSUYU RAG\nDieksport: ${cap}\n`);
+      riwayat.forEach((t, i) => {
+        if (md) {
+          baris.push(`\n## ${i + 1}. Soalan\n\n${t.soalan}\n\n### Jawapan\n\n${t.jawapan}\n`);
+        } else {
+          baris.push(`\n[${i + 1}] SOALAN:\n${t.soalan}\n\nJAWAPAN:\n${t.jawapan}\n`);
+        }
+        if (t.sumber && t.sumber.length) {
+          baris.push(md ? '\n**Rujukan:**\n' : '\nRujukan:');
+          t.sumber.forEach((s) => {
+            const m = s.meta || {};
+            const tag = [m.category, m.year, m.security].filter(Boolean).join('/');
+            const ms = s.page ? `ms. ${s.page}` : '';
+            const label = [s.filename, ms, tag ? `[${tag}]` : ''].filter(Boolean).join(' ');
+            baris.push(md ? `- ${label}` : `  - ${label}`);
+          });
+          baris.push('');
+        }
+      });
+      const teks = baris.join('\n');
+      const jenis = md ? 'text/markdown' : 'text/plain';
+      const sambungan = md ? 'md' : 'txt';
+      const blob = new Blob([teks], { type: jenis + ';charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      // Cap masa nama fail (waktu tempatan pelayar; locale sv-SE beri format ISO-seperti).
+      const stamp = new Date().toLocaleString('sv-SE').replace(' ', '-').replace(/:/g, '-');
+      a.href = url;
+      a.download = `perbualan-tsuyu-${stamp}.${sambungan}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // Hurai satu blok SSE; pulang { type, value }.
+    function kendaliEvent(raw) {
+      let ev = 'message';
+      let data = '';
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) ev = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).replace(/^ /, '');
+      }
+
+      if (ev === 'sources') {
+        try {
+          const arr = JSON.parse(data);
+          if (!arr.length) return { type: 'sources', value: '', data: [] };
+          const items = arr.map((s) => {
+            const m = s.meta || {};
+            const tag = [m.category, m.year, m.security].filter(Boolean).join('/');
+            const ms = s.page ? `ms. ${s.page}` : '';
+            const label = [escapeHtml(s.filename), ms, tag ? `[${escapeHtml(tag)}]` : '']
+              .filter(Boolean).join(' ');
+            const snip = s.snippet ? `<div class="snip">“${escapeHtml(s.snippet)}”</div>` : '';
+            return `<li><b>${label}</b>${snip}</li>`;
+          }).join('');
+          return { type: 'sources', value: `<div class="sumber">Rujukan:<ul>${items}</ul></div>`, data: arr };
+        } catch (_) { return { type: 'sources', value: '', data: [] }; }
+      } else if (ev === 'token') {
+        let tok = data; try { tok = JSON.parse(data); } catch (_) {}
+        return { type: 'token', value: tok };
+      } else if (ev === 'error') {
+        let m = data; try { m = JSON.parse(data); } catch (_) {}
+        return { type: 'error', value: m };
+      }
+      return { type: ev, value: data };
+    }
+
+    async function muatDokumen() {
+      const div = $('senaraiDok');
+      div.textContent = 'Memuat...';
+      try {
+        const res = await fetch('/documents', { headers: headers() });
+        if (res.status === 401) { div.textContent = 'API key diperlukan.'; return; }
+        if (!res.ok) { div.textContent = 'Ralat: ' + res.status; return; }
+        const data = await res.json();
+        if (!data.documents.length) { div.textContent = '(tiada dokumen)'; return; }
+        const rows = data.documents.map((d) => {
+          const m = d.meta || {};
+          const meta = [m.category, m.department, m.year, m.security].filter(Boolean).join(' / ');
+          return `<tr><td>${d.id}</td><td>${escapeHtml(d.filename)}</td><td>${escapeHtml(meta)}</td>` +
+            `<td>${d.chunk_count}</td>` +
+            `<td><button class="kecil" onclick="padamDokumen(${d.id})">Padam</button></td></tr>`;
+        }).join('');
+        div.innerHTML =
+          `<table><thead><tr><th>ID</th><th>Fail</th><th>Metadata</th><th>Chunk</th><th></th></tr></thead>` +
+          `<tbody>${rows}</tbody></table>`;
+      } catch (e) {
+        div.textContent = 'Ralat rangkaian: ' + e;
+      }
+    }
+
+    async function padamDokumen(id) {
+      if (!confirm('Padam dokumen #' + id + ' (dan semua chunknya)?')) return;
+      try {
+        const res = await fetch('/documents/' + id, { method: 'DELETE', headers: headers() });
+        if (!res.ok) { alert('Gagal padam: ' + res.status); return; }
+        muatDokumen();
+      } catch (e) {
+        alert('Ralat rangkaian: ' + e);
+      }
+    }
+  </script>
+</body>
+</html>

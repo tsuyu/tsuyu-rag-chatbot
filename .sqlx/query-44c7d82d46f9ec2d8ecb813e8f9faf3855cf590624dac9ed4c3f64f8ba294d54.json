@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT role, content\n        FROM (\n            SELECT role, content, id\n            FROM messages\n            WHERE session_id = $1\n            ORDER BY id DESC\n            LIMIT $2\n        ) recent\n        ORDER BY id ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "content",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "44c7d82d46f9ec2d8ecb813e8f9faf3855cf590624dac9ed4c3f64f8ba294d54"
+}

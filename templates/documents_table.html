@@ -1,0 +1,35 @@
+{% if docs.is_empty() %}
+<p class="info">Tiada dokumen lagi. Letak fail dalam folder dokumen pelayan dan klik “Ingest”.</p>
+{% else %}
+<p class="info">{{ docs.len() }} dokumen · {{ total_chunks }} chunk keseluruhan.</p>
+<table>
+  <thead>
+    <tr>
+      <th>Nama fail</th>
+      <th>Kategori</th>
+      <th>Jabatan</th>
+      <th>Tahun</th>
+      <th>Keselamatan</th>
+      <th>Chunk</th>
+      <th>Saiz</th>
+      <th>Di-ingest</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in docs %}
+    <tr>
+      <td><b>{{ d.filename }}</b><br><span class="info">{{ d.path }}</span></td>
+      <td>{{ d.category }}</td>
+      <td>{{ d.department }}</td>
+      <td>{{ d.year }}</td>
+      <td>{% if d.is_sulit %}<span class="pil sulit">{{ d.security }}</span>{% else %}<span class="pil">{{ d.security }}</span>{% endif %}</td>
+      <td>{{ d.chunks }}</td>
+      <td>{{ d.size }}</td>
+      <td>{{ d.ingested }}</td>
+      <td><button class="bahaya" data-id="{{ d.id }}" data-nama="{{ d.filename }}" onclick="padam(this)">Padam</button></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
