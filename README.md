@@ -1,58 +1,60 @@
 # TSUYU RAG Chatbot
 
-Chatbot RAG (Retrieval-Augmented Generation) dalaman untuk **TSUYU**. Dibina supaya
-**semua data kekal on-premise** (tiada API luar) dan berinteraksi dalam **Bahasa Malaysia**.
+> Bahasa Malaysia: [README-BM.md](README-BM.md)
 
-Pengguna bertanya soalan → sistem cari petikan dokumen paling relevan → bina prompt
-dengan konteks tersebut → hantar ke model LLM tempatan (Ollama) → pulang jawapan
-beserta senarai dokumen rujukan.
+Internal RAG (Retrieval-Augmented Generation) chatbot for **TSUYU**. Built so that
+**all data stays on-premise** (no external APIs) and interacts primarily in **Bahasa Malaysia**.
 
----
-
-## Kandungan
-
-- [Senibina](#senibina)
-- [Stack teknologi](#stack-teknologi)
-- [Keperluan sistem](#keperluan-sistem)
-- [Cadangan perkakasan (hardware)](#cadangan-perkakasan-hardware)
-- [Pemasangan & setup](#pemasangan--setup)
-- [Konfigurasi (.env)](#konfigurasi-env)
-- [Menjalankan aplikasi](#menjalankan-aplikasi)
-- [Pengesahan (authentication)](#pengesahan-authentication)
-- [API endpoint](#api-endpoint)
-- [Aliran kerja biasa](#aliran-kerja-biasa)
-- [Metadata dokumen](#metadata-dokumen)
-- [Guardrail anti-halusinasi](#guardrail-anti-halusinasi)
-- [Kad Watak (persona)](#kad-watak-persona)
-- [Struktur projek](#struktur-projek)
-- [Ujian](#ujian)
-- [Deploy ke Ubuntu (systemd)](#deploy-ke-ubuntu-systemd)
-- [Penyelesaian masalah](#penyelesaian-masalah)
-- [Nota reka bentuk](#nota-reka-bentuk)
-- [Dokumen berkaitan](#dokumen-berkaitan)
+User asks a question → system finds the most relevant document excerpts → builds a prompt
+with that context → sends to a local LLM (Ollama) → returns an answer with a list of
+reference documents.
 
 ---
 
-## Dokumen berkaitan
+## Contents
 
-| Dokumen | Untuk siapa | Kandungan |
+- [Architecture](#architecture)
+- [Technology stack](#technology-stack)
+- [System requirements](#system-requirements)
+- [Hardware recommendations](#hardware-recommendations)
+- [Installation & setup](#installation--setup)
+- [Configuration (.env)](#configuration-env)
+- [Running the application](#running-the-application)
+- [Authentication](#authentication)
+- [API endpoints](#api-endpoints)
+- [Common workflow](#common-workflow)
+- [Metadata](#metadata)
+- [Anti-hallucination guardrails](#anti-hallucination-guardrails)
+- [Character Card (persona)](#character-card-persona)
+- [Project structure](#project-structure)
+- [Tests](#tests)
+- [Deploy to Ubuntu (systemd)](#deploy-to-ubuntu-systemd)
+- [Troubleshooting](#troubleshooting)
+- [Design notes](#design-notes)
+- [Related documents](#related-documents)
+
+---
+
+## Related documents
+
+| Document | Audience | Contents |
 |---|---|---|
-| [MODEL.md](MODEL.md) | Pembangun / penilai | Penerangan setiap model (Qwen3 14B, bge-m3, reranker, tokenizer) & cara menukar |
-| [RUNBOOK.md](RUNBOOK.md) | Staf IT / operasi | Operasi harian, log, pemantauan, sandaran & pemulihan, senario kegagalan |
-| [KESELAMATAN.md](KESELAMATAN.md) | Keselamatan ICT / audit | Model ancaman, pengelasan data, hardening, pengekalan data (PDPA), insiden |
-| [PANDUAN-PENGGUNA.md](PANDUAN-PENGGUNA.md) | Pengguna akhir | Cara bertanya, membaca jawapan & sumber, had sistem, FAQ |
-| [PANDUAN-DOKUMEN.md](PANDUAN-DOKUMEN.md) | Staf muat naik dokumen | Format disokong, kualiti PDF/OCR, metadata sidecar, cara ingest |
-| [SETUP-DEV-TEMPATAN.md](SETUP-DEV-TEMPATAN.md) | Pembangun | Setup dev CPU-sahaja (model kecil) — langkah pasang + pengesahan |
-| [CHANGELOG.md](CHANGELOG.md) | Semua | Sejarah perubahan & ciri ikut keluaran |
-| [ROADMAP.md](ROADMAP.md) | Pembangun | Status ciri & cadangan penambahbaikan |
+| [MODEL-EN.md](MODEL-EN.md) | Developers / evaluators | Description of each model (Qwen3 14B, bge-m3, reranker, tokenizer) & how to swap |
+| [RUNBOOK-EN.md](RUNBOOK-EN.md) | IT staff / operations | Daily operations, logs, monitoring, backup & recovery, failure scenarios |
+| [SECURITY-EN.md](SECURITY-EN.md) | ICT security / audit | Threat model, data classification, hardening, data retention (PDPA), incidents |
+| [USER-GUIDE-EN.md](USER-GUIDE-EN.md) | End users | How to ask questions, read answers & sources, system limits, FAQ |
+| [DOCUMENT-GUIDE-EN.md](DOCUMENT-GUIDE-EN.md) | Document upload staff | Supported formats, PDF/OCR quality, sidecar metadata, how to ingest |
+| [LOCAL-DEV-SETUP-EN.md](LOCAL-DEV-SETUP-EN.md) | Developers | CPU-only dev setup (small models) — install steps + validation |
+| [CHANGELOG-EN.md](CHANGELOG-EN.md) | Everyone | Change history & features by release |
+| [ROADMAP-EN.md](ROADMAP-EN.md) | Developers | Feature status & proposed improvements |
 
 ---
 
-## Senibina
+## Architecture
 
 ```
                     ┌──────────────┐
-   Pengguna ───────▶│  Frontend    │  (htmx ringkas, GET /)
+   User ───────────▶│  Frontend    │  (lightweight htmx, GET /)
                     │  HTML        │
                     └──────┬───────┘
                            │ POST /chat { question }
@@ -60,15 +62,15 @@ beserta senarai dokumen rujukan.
    ┌───────────────────────────────────────────────────────────┐
    │                  Rust + Axum (API)                        │
    │                                                           │
-   │   /chat ─▶ embed soalan ─▶ HYBRID retrieve N:             │
-   │                              vektor + kata kunci → RRF    │
+   │   /chat ─▶ embed question ─▶ HYBRID retrieve N:           │
+   │                              vector + keyword → RRF       │
    │                                │                          │
    │                                ▼                          │
    │                          RERANK (top-N → top-k)           │
    │                                │                          │
    │                                ▼                          │
-   │                       bina prompt (BM) ─▶ generate        │
-   │   /ingest ─▶ baca dokumen ─▶ chunk ─▶ embed (batch) ─▶ DB │
+   │                       build prompt → generate             │
+   │   /ingest ─▶ read docs ─▶ chunk ─▶ embed (batch) ─▶ DB   │
    │   /health ─▶ ping DB + Ollama + reranker                  │
    └──────┬──────────────────┬─────────────────────┬───────────┘
           │                  │                     │
@@ -79,114 +81,114 @@ beserta senarai dokumen rujukan.
    └───────────────┘  └───────────────┘   └────────────────┘
 ```
 
-**Aliran RAG (POST /chat):**
-1. Jana embedding untuk soalan pengguna (Ollama `bge-m3`, 1024 dimensi).
-2. **Hybrid search** — cari `RETRIEVE_N` calon secara selari:
-   - **Vektor**: jarak cosine pgvector (`<=>`) — relevansi semantik.
-   - **Kata kunci**: full-text PostgreSQL (`tsvector`/`ts_rank`) — padanan istilah tepat.
-   - Gabung kedua-dua kedudukan dengan **Reciprocal Rank Fusion (RRF)**.
-3. **Rerank** calon dengan cross-encoder (`bge-reranker-v2-m3`) → ambil `TOP_K` terbaik.
-4. Bina prompt Bahasa Malaysia yang menyuntik konteks chunk.
-5. Hantar prompt ke model jana (`qwen3:14b`) melalui Ollama (mod thinking dimatikan).
-6. Pulang `{ answer, sources[] }` (token demi token jika guna `/chat/stream`).
+**RAG flow (POST /chat):**
+1. Generate embedding for the user's question (Ollama `bge-m3`, 1024 dimensions).
+2. **Hybrid search** — retrieve `RETRIEVE_N` candidates in parallel:
+   - **Vector**: pgvector cosine distance (`<=>`) — semantic relevance.
+   - **Keyword**: PostgreSQL full-text (`tsvector`/`ts_rank`) — exact term matching.
+   - Combine both rankings with **Reciprocal Rank Fusion (RRF)**.
+3. **Rerank** candidates with cross-encoder (`bge-reranker-v2-m3`) → take the best `TOP_K`.
+4. Build a prompt injecting the chunk context.
+5. Send prompt to the generation model (`qwen3:14b`) via Ollama (thinking mode disabled).
+6. Return `{ answer, sources[] }` (token-by-token if using `/chat/stream`).
 
-> **Boleh dimatikan secara berasingan:** `HYBRID_ENABLED=false` (vektor sahaja, tanpa
-> kata kunci) dan `RERANK_ENABLED=false` (langkau langkah rerank). Kedua-dua boleh
-> dimatikan untuk pipeline paling ringkas (vektor → jana).
+> **Individually disableable:** `HYBRID_ENABLED=false` (vector only, no keyword) and
+> `RERANK_ENABLED=false` (skip rerank step). Both can be disabled for the simplest pipeline
+> (vector → generate).
 
 ---
 
-## Stack teknologi
+## Technology stack
 
-| Lapisan         | Pilihan                          | Nota |
-|-----------------|----------------------------------|------|
+| Layer           | Choice                           | Notes |
+|-----------------|----------------------------------|-------|
 | API             | Rust + Axum + tokio              | async, systemd service |
 | DB driver       | sqlx 0.8 (PostgreSQL)            | connection pool |
-| Vector store    | PostgreSQL 16 + pgvector         | satu DB untuk metadata + vector |
+| Vector store    | PostgreSQL 16 + pgvector         | single DB for metadata + vectors |
 | LLM runtime     | Ollama                           | port 11434 |
-| Model jana      | `qwen3:14b`                      | Q4_K_M, mod thinking dimatikan |
-| Model embedding | `bge-m3`                         | 1024 dimensi, multilingual (BM) |
-| Reranker        | `bge-reranker-v2-m3` (TEI/Infinity)| cross-encoder, endpoint `/rerank` |
-| Baca dokumen    | `pdf-extract`, `zip`, `quick-xml`| PDF / DOCX / TXT / MD |
-| Frontend        | HTML + JS (vanilla)              | sembang bubble, streaming, penunjuk menaip |
+| Generation model| `qwen3:14b`                      | Q4_K_M, thinking mode disabled |
+| Embedding model | `bge-m3`                         | 1024 dimensions, multilingual |
+| Reranker        | `bge-reranker-v2-m3` (TEI/Infinity)| cross-encoder, `/rerank` endpoint |
+| Document reading| `pdf-extract`, `zip`, `quick-xml`| PDF / DOCX / TXT / MD |
+| Frontend        | HTML + JS (vanilla)              | chat bubbles, streaming, typing indicator |
 
 ---
 
-## Keperluan sistem
+## System requirements
 
-- **Rust** (toolchain stabil; projek diuji pada rustc 1.92)
-- **PostgreSQL 16** dengan sambungan **pgvector**
-- **Ollama** dengan model embedding & jana yang telah di-`pull`
+- **Rust** (stable toolchain; project tested on rustc 1.92)
+- **PostgreSQL 16** with **pgvector** extension
+- **Ollama** with embedding & generation models pulled
 
-> Nota versi: projek ini **tidak** menggunakan crate `pgvector`. Embedding disimpan
-> sebagai literal teks `'[...]'::vector` supaya kekal serasi dengan sqlx 0.8 dan
-> rustc 1.92. (Crate `pgvector` terkini menarik masuk sqlx 0.9 yang memerlukan rustc 1.94.)
-
----
-
-## Cadangan perkakasan (hardware)
-
-Faktor penentu utama ialah **model LLM Ollama** — ia yang paling banyak makan RAM/VRAM.
-Aplikasi Rust (Axum) dan PostgreSQL agak ringan berbanding model.
-
-### Cadangan ikut skala penggunaan
-
-Stack semasa (Qwen3 14B + bge-m3 + reranker) menjalankan **tiga model** serentak,
-jadi keperluan VRAM lebih tinggi daripada stack ringkas.
-
-| Skala                         | CPU            | RAM     | GPU (digalakkan)            | Stack model | Cakera (SSD) |
-|-------------------------------|----------------|---------|------------------------------|-------------|--------------|
-| **Minimum** (ujian / demo)    | 8 teras        | 16 GB   | NVIDIA 12 GB VRAM            | `qwen3:8b` + bge-m3 (rerank off) | 40 GB |
-| **Disyorkan** (pejabat kecil) | 12 teras       | 32 GB   | NVIDIA 16 GB VRAM            | `qwen3:14b` + bge-m3 + reranker  | 80 GB |
-| **Optimum** (ramai pengguna)  | 16+ teras      | 64 GB   | NVIDIA 24 GB VRAM (cth. RTX 4090/A5000) | `qwen3:14b` + bge-m3 + reranker | 150 GB+ |
-
-> **Petua:** tanpa GPU, model masih boleh jalan atas CPU tetapi jawapan akan **lebih
-> perlahan** (terutama Qwen3 14B). GPU NVIDIA dengan VRAM mencukupi memberi peningkatan
-> kelajuan paling ketara. Jika VRAM terhad, kekalkan **bge-m3** (ringan, faedah BM besar)
-> tetapi turunkan model jana ke `qwen3:8b` dan pertimbang `RERANK_ENABLED=false`.
-
-### Anggaran penggunaan memori model (kuantisasi Q4_K_M)
-
-| Model                  | Saiz fail | RAM/VRAM minimum semasa jalan |
-|------------------------|-----------|-------------------------------|
-| `qwen3:8b`             | ~5 GB     | ~7–9 GB                       |
-| `qwen3:14b`            | ~9 GB     | ~12–16 GB                     |
-| `bge-m3` (embedding)   | ~1.2 GB   | ~2 GB                         |
-| `bge-reranker-v2-m3`   | ~1.1 GB   | ~2 GB (servis berasingan)     |
-
-RAM/VRAM diperlukan = jumlah saiz semua model aktif + ruang untuk konteks (KV cache).
-Untuk stack penuh (Qwen3 14B + bge-m3 + reranker), sasarkan **≥16 GB VRAM**.
-
-### Nota GPU
-
-- **NVIDIA (CUDA)** ialah sokongan paling matang untuk Ollama. Kad seperti RTX 3060 12GB,
-  RTX 4060 Ti 16GB, atau RTX 4090 sesuai mengikut belanjawan.
-- **AMD (ROCm)** disokong pada GPU tertentu, tetapi pengesahan keserasian lebih rumit.
-- **Apple Silicon (Mac)** berfungsi baik untuk pembangunan, tetapi pelayan TSUYU dijangka
-  Ubuntu — utamakan GPU NVIDIA untuk pengeluaran.
-- Pastikan **VRAM ≥ saiz model**. Jika model lebih besar daripada VRAM, Ollama akan
-  "offload" sebahagian ke RAM/CPU dan menjadi jauh lebih perlahan.
-
-### Storan
-
-- **Cakera model**: setiap model disimpan dalam `~/.ollama/models` (lihat saiz di atas).
-- **Pangkalan data**: embedding 1024-dimensi (bge-m3) ≈ **4 KB seunit chunk**. Sebagai
-  panduan kasar, ~1 juta chunk ≈ beberapa GB (vektor + teks + index HNSW). Saiz dokumen
-  sumber asal tidak disimpan dalam DB (hanya teks chunk + metadata).
-- Gunakan **SSD/NVMe** untuk PostgreSQL bagi prestasi carian vektor yang baik.
-
-### Rumusan ringkas
-
-> Untuk stack penuh TSUYU, sasaran yang seimbang:
-> **12-teras CPU, 32 GB RAM, GPU NVIDIA 16 GB VRAM, SSD 80 GB**, menjalankan
-> `qwen3:14b` + `bge-m3` + `bge-reranker-v2-m3`. Jika VRAM ≤12 GB, guna `qwen3:8b`
-> dan/atau matikan reranker.
+> Version note: this project does **not** use the `pgvector` crate. Embeddings are stored
+> as text literals `'[...]'::vector` to remain compatible with sqlx 0.8 and rustc 1.92.
+> (The latest `pgvector` crate pulls in sqlx 0.9 which requires rustc 1.94.)
 
 ---
 
-## Pemasangan & setup
+## Hardware recommendations
 
-### 1. Pasang kebergantungan sistem
+The primary determining factor is the **Ollama LLM model** — it consumes the most RAM/VRAM.
+The Rust (Axum) application and PostgreSQL are relatively lightweight compared to the models.
+
+### Recommendations by scale
+
+The current stack (Qwen3 14B + bge-m3 + reranker) runs **three models** concurrently,
+so VRAM requirements are higher than a minimal stack.
+
+| Scale                          | CPU            | RAM     | GPU (recommended)                   | Model stack | Storage (SSD) |
+|-------------------------------|----------------|---------|--------------------------------------|-------------|---------------|
+| **Minimum** (testing / demo)  | 8 cores        | 16 GB   | NVIDIA 12 GB VRAM                    | `qwen3:8b` + bge-m3 (rerank off) | 40 GB |
+| **Recommended** (small office)| 12 cores       | 32 GB   | NVIDIA 16 GB VRAM                    | `qwen3:14b` + bge-m3 + reranker  | 80 GB |
+| **Optimal** (many users)      | 16+ cores      | 64 GB   | NVIDIA 24 GB VRAM (e.g. RTX 4090/A5000) | `qwen3:14b` + bge-m3 + reranker | 150 GB+ |
+
+> **Tip:** without a GPU, models can still run on CPU but responses will be **much slower**
+> (especially Qwen3 14B). An NVIDIA GPU with sufficient VRAM gives the biggest speed boost.
+> If VRAM is limited, keep **bge-m3** (lightweight, big BM benefit) but downgrade the
+> generation model to `qwen3:8b` and consider `RERANK_ENABLED=false`.
+
+### Approximate model memory usage (Q4_K_M quantization)
+
+| Model                  | File size | Min RAM/VRAM at runtime |
+|------------------------|-----------|-------------------------|
+| `qwen3:8b`             | ~5 GB     | ~7–9 GB                 |
+| `qwen3:14b`            | ~9 GB     | ~12–16 GB               |
+| `bge-m3` (embedding)   | ~1.2 GB   | ~2 GB                   |
+| `bge-reranker-v2-m3`   | ~1.1 GB   | ~2 GB (separate service)|
+
+Required RAM/VRAM = total size of all active models + space for context (KV cache).
+For the full stack (Qwen3 14B + bge-m3 + reranker), target **≥16 GB VRAM**.
+
+### GPU notes
+
+- **NVIDIA (CUDA)** is the most mature support for Ollama. Cards like RTX 3060 12GB,
+  RTX 4060 Ti 16GB, or RTX 4090 are suitable depending on budget.
+- **AMD (ROCm)** is supported on certain GPUs, but compatibility verification is more complex.
+- **Apple Silicon (Mac)** works well for development, but TSUYU's production server is expected
+  to be Ubuntu — prioritize NVIDIA GPU for production.
+- Ensure **VRAM ≥ model size**. If the model is larger than VRAM, Ollama will "offload"
+  part to RAM/CPU and become much slower.
+
+### Storage
+
+- **Model storage**: each model is stored in `~/.ollama/models` (see sizes above).
+- **Database**: 1024-dimension embeddings (bge-m3) ≈ **4 KB per chunk**. Rough guide:
+  ~1 million chunks ≈ a few GB (vectors + text + HNSW index). Original source document
+  size is not stored in the DB (only chunk text + metadata).
+- Use **SSD/NVMe** for PostgreSQL for good vector search performance.
+
+### Quick summary
+
+> For the full TSUYU stack, a balanced target:
+> **12-core CPU, 32 GB RAM, NVIDIA 16 GB VRAM GPU, 80 GB SSD**, running
+> `qwen3:14b` + `bge-m3` + `bge-reranker-v2-m3`. If VRAM ≤12 GB, use `qwen3:8b`
+> and/or disable the reranker.
+
+---
+
+## Installation & setup
+
+### 1. Install system dependencies
 
 ```bash
 # PostgreSQL + pgvector
@@ -197,19 +199,19 @@ sudo apt install -y postgresql postgresql-16-pgvector
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-### 2. Sediakan model Ollama
+### 2. Set up Ollama models
 
 ```bash
 ollama pull qwen3:14b
 ollama pull bge-m3
-sudo systemctl status ollama   # Ollama jadi systemd service selepas install
+sudo systemctl status ollama   # Ollama becomes a systemd service after install
 ```
 
-### 3. Sediakan servis reranker
+### 3. Set up reranker service
 
-Reranker ialah cross-encoder yang **tidak** disajikan oleh Ollama, jadi ia berjalan
-sebagai servis berasingan dengan endpoint `/rerank` (serasi HuggingFace TEI). Contoh
-guna Docker (`text-embeddings-inference`):
+The reranker is a cross-encoder that is **not** served by Ollama, so it runs as a separate
+service with a `/rerank` endpoint (compatible with HuggingFace TEI). Example using Docker
+(`text-embeddings-inference`):
 
 ```bash
 docker run --gpus all -p 8081:80 \
@@ -217,14 +219,14 @@ docker run --gpus all -p 8081:80 \
   --model-id BAAI/bge-reranker-v2-m3
 ```
 
-Servis ini sepatutnya mendedahkan `POST /rerank` dengan badan
-`{ "query": "...", "texts": ["...", ...] }`. Tetapkan `RERANKER_URL` ke alamatnya
-(lalai `http://localhost:8081`).
+This service should expose `POST /rerank` with body
+`{ "query": "...", "texts": ["...", ...] }`. Set `RERANKER_URL` to its address
+(default `http://localhost:8081`).
 
-> Tiada GPU/servis reranker? Tetapkan `RERANK_ENABLED=false` dalam `.env` — sistem akan
-> guna carian vektor sahaja (kualiti sedikit kurang tetapi tetap berfungsi).
+> No GPU/reranker service? Set `RERANK_ENABLED=false` in `.env` — the system will use
+> vector search only (slightly lower quality but still functional).
 
-### 4. Sediakan pangkalan data
+### 4. Set up database
 
 ```bash
 sudo -u postgres psql <<'SQL'
@@ -236,59 +238,59 @@ CREATE EXTENSION IF NOT EXISTS vector;
 SQL
 ```
 
-> Skema diuruskan melalui **migrasi sqlx** dalam [migrations/](migrations/), dijalankan
-> **automatik** semasa start dan dijejak dalam jadual `_sqlx_migrations` (idempotent).
-> Fail [schema.sql](schema.sql) hanya rujukan. Untuk menambah perubahan skema, cipta fail
-> migrasi baharu (cth. `migrations/0002_xxx.sql`) — jangan ubah migrasi yang telah dihantar.
+> Schema is managed via **sqlx migrations** in [migrations/](migrations/), run
+> **automatically** at startup and tracked in the `_sqlx_migrations` table (idempotent).
+> The [schema.sql](schema.sql) file is reference only. To add schema changes, create a
+> new migration file (e.g. `migrations/0002_xxx.sql`) — do not modify committed migrations.
 
-### 5. Konfigurasi aplikasi
+### 5. Configure the application
 
 ```bash
 cp .env.example .env
-# Edit .env ikut persekitaran anda (lihat bahagian seterusnya)
+# Edit .env for your environment (see next section)
 ```
 
 ---
 
-## Konfigurasi (.env)
+## Configuration (.env)
 
-| Pemboleh ubah     | Wajib | Lalai                     | Keterangan |
-|-------------------|:-----:|---------------------------|------------|
-| `DATABASE_URL`    | ✅    | —                         | URL sambungan PostgreSQL |
-| `OLLAMA_URL`      | ❌    | `http://localhost:11434`  | Alamat Ollama |
-| `GEN_MODEL`       | ❌    | `qwen3:14b`               | Model menjana jawapan |
-| `EMBED_MODEL`     | ❌    | `bge-m3`                  | Model embedding |
-| `EMBED_DIM`       | ❌    | `1024`                    | Dimensi vektor — mesti sepadan model (bge-m3=1024, nomic=768) |
-| `GEN_THINK`       | ❌    | `false`                   | Mod thinking Qwen3: `false`/`true`/`default` |
-| `DOCS_DIR`        | ❌    | `./docs`                  | Folder dokumen untuk ingest |
-| `CHARACTER_CARD_PATH` | ❌ | `character.json`          | Fail JSON persona (kad watak); lalai jika tiada |
-| `APP_TIMEZONE`    | ❌    | `Asia/Kuala_Lumpur`       | Zon waktu (IANA) untuk paparan TIMESTAMPTZ |
-| `BIND_ADDR`       | ❌    | `127.0.0.1:8080`          | Alamat pelayan |
-| `API_KEY`         | ❌    | _(kosong)_                | Key pengguna: `/chat`, `/chat/stream`, `GET /documents` |
-| `ADMIN_API_KEY`   | ❌    | _(kosong)_                | Key admin: `/ingest`, `DELETE /documents/:id`, `DELETE /sessions/:id` |
-| `RERANK_ENABLED`  | ❌    | `true`                    | Hidupkan reranking selepas carian vektor |
-| `RERANKER_URL`    | ❌    | `http://localhost:8081`   | Alamat servis reranker (endpoint `/rerank`) |
-| `RERANKER_MODEL`  | ❌    | `bge-reranker-v2-m3`      | Nama model reranker |
-| `TOP_K`           | ❌    | `5`                       | Bilangan chunk akhir dihantar ke LLM |
-| `RETRIEVE_N`      | ❌    | `30`                      | Bilangan calon dari pgvector sebelum rerank (> `TOP_K`) |
-| `HYBRID_ENABLED`  | ❌    | `true`                    | Gabung carian vektor + kata kunci (BM25) via RRF |
-| `RRF_K`           | ❌    | `60`                      | Pemalar k dalam Reciprocal Rank Fusion |
-| `FTS_CONFIG`      | ❌    | `simple`                  | Konfigurasi full-text PostgreSQL (`simple`/`english`) |
-| `MEMORY_ENABLED`  | ❌    | `true`                    | Ingat sejarah perbualan untuk permintaan dengan `session_id` |
-| `MEMORY_TURNS`    | ❌    | `6`                       | Bilangan mesej terkini dimuat sebagai konteks perbualan |
-| `RELEVANCE_ENABLED`| ❌   | `true`                    | Guardrail: tolak soalan tanpa LLM jika konteks tak cukup relevan |
-| `RELEVANCE_MIN_RERANK`| ❌| `0.0`                     | Ambang minimum skor reranker (bila rerank hidup) |
-| `RELEVANCE_MAX_DISTANCE`| ❌| `1.0`                   | Ambang maksimum jarak cosine (bila rerank mati) |
-| `CHUNK_TOKENS`    | ❌    | `700`                     | Saiz sasaran setiap chunk (token sebenar, BPE) |
-| `CHUNK_OVERLAP`   | ❌    | `100`                     | Pertindihan antara chunk (token) |
-| `EMBED_BATCH_SIZE`| ❌    | `16`                      | Bilangan chunk per panggilan embedding semasa ingest |
-| `OLLAMA_MAX_RETRIES`| ❌  | `2`                       | Cubaan semula panggilan Ollama/reranker yang gagal sementara |
-| `OLLAMA_RETRY_BASE_MS`| ❌| `500`                     | Tempoh asas backoff (ms), digandakan setiap cubaan |
-| `RATE_LIMIT_RPM`  | ❌    | `120`                     | Permintaan dibenarkan per IP setiap minit. 0 = dimatikan |
-| `MAX_BODY_BYTES`  | ❌    | `2097152`                 | Had saiz badan permintaan (bait, lalai 2 MiB) |
-| `RUST_LOG`        | ❌    | `info`                    | Tahap log (cth. `debug`, `tsuyu_rag_chatbot=debug`) |
+| Variable          | Required | Default                   | Description |
+|-------------------|:--------:|---------------------------|-------------|
+| `DATABASE_URL`    | ✅       | —                         | PostgreSQL connection URL |
+| `OLLAMA_URL`      | ❌       | `http://localhost:11434`  | Ollama address |
+| `GEN_MODEL`       | ❌       | `qwen3:14b`               | Answer generation model |
+| `EMBED_MODEL`     | ❌       | `bge-m3`                  | Embedding model |
+| `EMBED_DIM`       | ❌       | `1024`                    | Vector dimensions — must match model (bge-m3=1024, nomic=768) |
+| `GEN_THINK`       | ❌       | `false`                   | Qwen3 thinking mode: `false`/`true`/`default` |
+| `DOCS_DIR`        | ❌       | `./docs`                  | Document folder for ingestion |
+| `CHARACTER_CARD_PATH` | ❌  | `character.json`          | Persona JSON file (character card); default if absent |
+| `APP_TIMEZONE`    | ❌       | `Asia/Kuala_Lumpur`       | Timezone (IANA) for TIMESTAMPTZ display |
+| `BIND_ADDR`       | ❌       | `127.0.0.1:8080`          | Server bind address |
+| `API_KEY`         | ❌       | _(empty)_                 | User key: `/chat`, `/chat/stream`, `GET /documents` |
+| `ADMIN_API_KEY`   | ❌       | _(empty)_                 | Admin key: `/ingest`, `DELETE /documents/:id`, `DELETE /sessions/:id` |
+| `RERANK_ENABLED`  | ❌       | `true`                    | Enable reranking after vector search |
+| `RERANKER_URL`    | ❌       | `http://localhost:8081`   | Reranker service address (`/rerank` endpoint) |
+| `RERANKER_MODEL`  | ❌       | `bge-reranker-v2-m3`      | Reranker model name |
+| `TOP_K`           | ❌       | `5`                       | Final chunk count sent to LLM |
+| `RETRIEVE_N`      | ❌       | `30`                      | Candidate count from pgvector before rerank (> `TOP_K`) |
+| `HYBRID_ENABLED`  | ❌       | `true`                    | Combine vector + keyword (BM25) search via RRF |
+| `RRF_K`           | ❌       | `60`                      | Constant k in Reciprocal Rank Fusion |
+| `FTS_CONFIG`      | ❌       | `simple`                  | PostgreSQL full-text config (`simple`/`english`) |
+| `MEMORY_ENABLED`  | ❌       | `true`                    | Remember conversation history for requests with `session_id` |
+| `MEMORY_TURNS`    | ❌       | `6`                       | Number of recent messages loaded as conversation context |
+| `RELEVANCE_ENABLED`| ❌      | `true`                    | Guardrail: reject questions without LLM if context isn't relevant enough |
+| `RELEVANCE_MIN_RERANK`| ❌   | `0.0`                     | Minimum reranker score threshold (when rerank enabled) |
+| `RELEVANCE_MAX_DISTANCE`| ❌ | `1.0`                    | Maximum cosine distance threshold (when rerank disabled) |
+| `CHUNK_TOKENS`    | ❌       | `700`                     | Target size per chunk (actual tokens, BPE) |
+| `CHUNK_OVERLAP`   | ❌       | `100`                     | Overlap between chunks (tokens) |
+| `EMBED_BATCH_SIZE`| ❌       | `16`                      | Chunks per embedding call during ingest |
+| `OLLAMA_MAX_RETRIES`| ❌     | `2`                       | Retry attempts for failed Ollama/reranker calls |
+| `OLLAMA_RETRY_BASE_MS`| ❌   | `500`                     | Base backoff duration (ms), doubled each attempt |
+| `RATE_LIMIT_RPM`  | ❌       | `120`                     | Requests allowed per IP per minute. 0 = disabled |
+| `MAX_BODY_BYTES`  | ❌       | `2097152`                 | Request body size limit (bytes, default 2 MiB) |
+| `RUST_LOG`        | ❌       | `info`                    | Log level (e.g. `debug`, `tsuyu_rag_chatbot=debug`) |
 
-Contoh `.env`:
+Example `.env`:
 
 ```env
 DATABASE_URL=postgres://tsuyu:password@localhost/tsuyu_rag
@@ -326,117 +328,116 @@ RUST_LOG=info
 
 ---
 
-## Menjalankan aplikasi
+## Running the application
 
 ```bash
-# Mod pembangunan
+# Development mode
 cargo run
 
-# Build optimum (untuk deploy)
+# Optimized build (for deployment)
 cargo build --release
 ./target/release/tsuyu-rag-chatbot
 ```
 
-> **Nota build (query masa-kompil):** sebahagian query (documents/memory/sessions/stats)
-> guna makro `sqlx::query!` yang disahkan pada masa kompil. Build menggunakan cache
-> **`.sqlx/`** yang di-commit, jadi **tiada DB diperlukan untuk build biasa**. Jika anda
-> mengubah mana-mana query `query!`, jana semula cache: `cargo sqlx prepare` (dengan
-> `DATABASE_URL` ditetapkan), kemudian commit folder `.sqlx/`. Untuk paksa mod offline:
-> `SQLX_OFFLINE=true cargo build`. (Pasang alat: `cargo install sqlx-cli --no-default-features --features postgres`.)
+> **Build note (compile-time queries):** some queries (documents/memory/sessions/stats)
+> use the `sqlx::query!` macro validated at compile time. Builds use the committed
+> **`.sqlx/`** cache, so **no DB is needed for normal builds**. If you modify any `query!`
+> queries, regenerate the cache: `cargo sqlx prepare` (with `DATABASE_URL` set), then
+> commit the `.sqlx/` folder. To force offline mode: `SQLX_OFFLINE=true cargo build`.
+> (Install tool: `cargo install sqlx-cli --no-default-features --features postgres`.)
 
-Selepas start, buka pelayar ke `http://127.0.0.1:8080` untuk frontend chat. Setiap
-jawapan ada butang **Salin** (📋); perbualan boleh **dicetak** (🖨️) atau **dieksport**
-ke fail `.md`/`.txt` (soalan + jawapan + rujukan) — semua sisi-klien, tiada data ke luar. UI
-**pengurusan dokumen** (lihat senarai, cetus ingest, padam dokumen) ada di
-`http://127.0.0.1:8080/admin` — dirender pelayan dengan templat Askama. Masukkan
-`ADMIN_API_KEY` pada halaman itu untuk membenarkan tindakan ingest/padam.
+After starting, open a browser to `http://127.0.0.1:8080` for the chat frontend. Each
+answer has a **Copy** button (📋); conversations can be **printed** (🖨️) or **exported**
+to a `.md`/`.txt` file (questions + answers + references) — all client-side, no data leaves.
+The **document management UI** (view list, trigger ingest, delete documents) is at
+`http://127.0.0.1:8080/admin` — server-rendered with Askama templates. Enter the
+`ADMIN_API_KEY` on that page to authorize ingest/delete actions.
 
-### Perintah CLI
+### CLI commands
 
-Binari yang sama menyokong beberapa perintah selain menghidupkan pelayan. Semua perintah
-membaca konfigurasi `.env` yang sama (`DATABASE_URL`, `DOCS_DIR`, dsb.) dan berjalan sekali
-lalu keluar — **tiada pelayan atau API key diperlukan** — jadi sesuai untuk cron, skrip
-deploy, dan troubleshooting.
+The same binary supports several commands beyond starting the server. All commands
+read the same `.env` config (`DATABASE_URL`, `DOCS_DIR`, etc.) and run once then exit —
+**no server or API key needed** — ideal for cron, deploy scripts, and troubleshooting.
 
 ```bash
-tsuyu-rag-chatbot                  # (lalai) hidupkan pelayan HTTP — sama seperti `serve`
-tsuyu-rag-chatbot serve            # hidupkan pelayan HTTP secara eksplisit
-tsuyu-rag-chatbot ingest           # ingest dokumen sekali (tokokan)
-tsuyu-rag-chatbot ingest --force   # ingest semula semua fail walaupun tidak berubah
-tsuyu-rag-chatbot check            # pemeriksaan praterbang: DB, Ollama, model, reranker
-tsuyu-rag-chatbot stats            # gambaran DB: kiraan dokumen/chunk/mesej + saiz
-tsuyu-rag-chatbot prune-sessions --older-than 30   # padam memori perbualan > 30 hari
-tsuyu-rag-chatbot ask "Apa polisi cuti tahunan?"   # pertanyaan RAG sekali-jalan
-tsuyu-rag-chatbot --help           # papar bantuan
+tsuyu-rag-chatbot                  # (default) start HTTP server — same as `serve`
+tsuyu-rag-chatbot serve            # start HTTP server explicitly
+tsuyu-rag-chatbot ingest           # ingest documents once (incremental)
+tsuyu-rag-chatbot ingest --force   # re-ingest all files even if unchanged
+tsuyu-rag-chatbot check            # pre-flight check: DB, Ollama, models, reranker
+tsuyu-rag-chatbot stats            # DB overview: document/chunk/message counts + size
+tsuyu-rag-chatbot prune-sessions --older-than 30   # delete conversation memory > 30 days
+tsuyu-rag-chatbot ask "What is the annual leave policy?"   # one-shot RAG query
+tsuyu-rag-chatbot --help           # show help
 ```
 
-| Perintah | Guna | Kod keluar |
+| Command | Use | Exit code |
 |---|---|---|
-| `ingest [--force]` | Saluran ingest sama seperti `POST /ingest`. Cetak ringkasan. | `1` jika ada fail gagal |
-| `check` | Sahkan DB + Ollama + model + reranker boleh dicapai (sebelum deploy). | `1` jika tidak sihat |
-| `stats` | Kiraan dokumen/chunk/mesej + saiz DB. Read-only. | `0` |
-| `prune-sessions [--older-than N]` | Padam memori perbualan > N hari (lalai 90; dasar PDPA). | `0` |
-| `ask "<soalan>"` | Saluran RAG penuh; cetak jawapan + sumber. Ujian asap. | `0` |
+| `ingest [--force]` | Same ingest pipeline as `POST /ingest`. Prints summary. | `1` if any files failed |
+| `check` | Validate DB + Ollama + models + reranker are reachable (before deploy). | `1` if unhealthy |
+| `stats` | Document/chunk/message counts + DB size. Read-only. | `0` |
+| `prune-sessions [--older-than N]` | Delete conversation memory > N days (default 90; PDPA policy). | `0` |
+| `ask "<question>"` | Full RAG pipeline; print answer + sources. Smoke test. | `0` |
 
-Lihat [PANDUAN-DOKUMEN.md](PANDUAN-DOKUMEN.md) §5 dan [RUNBOOK.md](RUNBOOK.md) untuk
-penjadualan automatik & penggunaan operasi.
+See [DOCUMENT-GUIDE-EN.md](DOCUMENT-GUIDE-EN.md) §5 and [RUNBOOK-EN.md](RUNBOOK-EN.md) for
+automated scheduling & operational use.
 
 ---
 
-## Pengesahan (authentication)
+## Authentication
 
-Pengesahan **dua peringkat** menggunakan API key melalui header `Authorization: Bearer <key>`.
+**Two-tier** authentication using API keys via the `Authorization: Bearer <key>` header.
 
-| Peranan | Pemboleh ubah | Endpoint |
-|---------|---------------|----------|
-| **Pengguna** | `API_KEY` | `POST /chat`, `POST /chat/stream`, `GET /documents` |
+| Role  | Variable      | Endpoints |
+|-------|---------------|-----------|
+| **User**  | `API_KEY`       | `POST /chat`, `POST /chat/stream`, `GET /documents` |
 | **Admin** | `ADMIN_API_KEY` | `POST /ingest`, `DELETE /documents/:id`, `DELETE /sessions/:id` |
 
-Peraturan:
-- Key **admin juga boleh** mengakses endpoint pengguna (admin ⊇ pengguna).
-- Jika `ADMIN_API_KEY` **tidak ditetapkan**, endpoint admin **jatuh balik** ke `API_KEY`
-  (mod satu-key — sama seperti versi sebelum ini).
-- Jika `API_KEY` **kosong**, pengesahan pengguna dimatikan; jika kedua-dua kosong, semua
-  endpoint terbuka (pembangunan tempatan) — amaran dicatat dalam log semasa start.
-- Endpoint `GET /health`, frontend `GET /`, dan halaman UI `GET /admin` sentiasa
-  **terbuka** — tetapi `/admin` hanya rangka halaman; data & tindakannya
-  (`/admin/documents`, `/admin/ingest`, …) tetap memerlukan kunci yang sah.
-- Key salah/tiada → **401 Unauthorized**.
+Rules:
+- The **admin key also grants access** to user endpoints (admin ⊇ user).
+- If `ADMIN_API_KEY` is **not set**, admin endpoints **fall back** to `API_KEY`
+  (single-key mode — same as earlier versions).
+- If `API_KEY` is **empty**, user authentication is disabled; if both are empty, all
+  endpoints are open (local development) — a warning is logged at startup.
+- `GET /health`, frontend `GET /`, and UI page `GET /admin` are always **open** —
+  but `/admin` is just a page shell; its data & actions
+  (`/admin/documents`, `/admin/ingest`, …) still require a valid key.
+- Wrong/missing key → **401 Unauthorized**.
 
-Contoh:
+Example:
 
 ```bash
-# Pengguna biasa boleh bertanya
+# Regular user can ask questions
 curl -X POST http://localhost:8080/chat \
   -H 'Authorization: Bearer <API_KEY>' \
   -H 'Content-Type: application/json' \
-  -d '{ "question": "Soalan?" }'
+  -d '{ "question": "Question?" }'
 
-# Hanya admin boleh cetus ingest / padam
+# Only admin can trigger ingest / delete
 curl -X POST http://localhost:8080/ingest \
   -H 'Authorization: Bearer <ADMIN_API_KEY>'
 ```
 
-**Frontend**: medan "API key" disediakan di halaman utama; nilainya disimpan dalam
-`localStorage` pelayar dan dihantar automatik dengan setiap permintaan. (Untuk operasi
-admin melalui UI, masukkan `ADMIN_API_KEY` dalam medan itu.)
+**Frontend**: an "API key" field is provided on the main page; the value is stored in
+browser `localStorage` and sent automatically with every request. (For admin operations
+via UI, enter the `ADMIN_API_KEY` in that field.)
 
-> **Amalan baik:**
-> - Guna key yang panjang & rawak (cth. `openssl rand -hex 32`), berbeza untuk pengguna vs admin.
-> - Hantar melalui HTTPS sahaja (letak Nginx/TLS di depan — lihat bahagian deploy).
-> - Perbandingan key dibuat secara **masa-tetap** (constant-time) untuk elak serangan masa.
-> - Untuk per-pengguna penuh atau SSO, ini boleh dinaik taraf pada masa hadapan.
+> **Best practices:**
+> - Use long & random keys (e.g. `openssl rand -hex 32`), different for user vs admin.
+> - Send over HTTPS only (put Nginx/TLS in front — see deploy section).
+> - Key comparison is done in **constant time** to prevent timing attacks.
+> - For full per-user or SSO, this can be upgraded in the future.
 
 ---
 
-## API endpoint
+## API endpoints
 
-> Jika key ditetapkan, contoh `curl` di bawah perlu tambah header
-> `-H 'Authorization: Bearer <key>'` — guna `ADMIN_API_KEY` untuk endpoint admin
-> (`/ingest`, `DELETE …`) dan `API_KEY` untuk selebihnya.
+> If keys are set, the `curl` examples below need the header
+> `-H 'Authorization: Bearer <key>'` — use `ADMIN_API_KEY` for admin endpoints
+> (`/ingest`, `DELETE …`) and `API_KEY` for the rest.
 
 ### `GET /health`
-Semak kesihatan DB, Ollama, ketersediaan model, dan reranker (jika dihidupkan).
+Check health of DB, Ollama, model availability, and reranker (if enabled).
 
 ```bash
 curl http://localhost:8080/health
@@ -450,17 +451,17 @@ curl http://localhost:8080/health
   "models": { "gen": true, "embed": true }
 }
 ```
-Pulang **200** jika semua komponen relevan hidup, **503** jika ada yang gagal
-(`status: "degraded"`). Medan:
-- `models.gen` / `models.embed` — sama ada `GEN_MODEL` / `EMBED_MODEL` benar-benar wujud
-  di Ollama (disemak dari `/api/tags`; padanan abai tag `:latest`). Jika `false`, jalankan
+Returns **200** if all relevant components are up, **503** if any fail
+(`status: "degraded"`). Fields:
+- `models.gen` / `models.embed` — whether `GEN_MODEL` / `EMBED_MODEL` actually exist
+  in Ollama (checked from `/api/tags`; matching ignores `:latest` tag). If `false`, run
   `ollama pull <model>`.
-- `reranker` — tiada jika `RERANK_ENABLED=false`.
+- `reranker` — absent if `RERANK_ENABLED=false`.
 
 ---
 
 ### `GET /metrics`
-Metrik dalam format teks **Prometheus** (terbuka, untuk pengikis dalaman).
+Metrics in **Prometheus** text format (open, for internal scraping).
 
 ```bash
 curl http://localhost:8080/metrics
@@ -474,162 +475,161 @@ tsuyu_retrieval_duration_ms_count 125
 tsuyu_generate_duration_ms_sum 412000
 tsuyu_generate_duration_ms_count 125
 ```
-Purata masa dikira di Prometheus: `…_duration_ms_sum / …_duration_ms_count`. Sesuai
-disambung ke Grafana untuk papan pemuka latensi retrieval/generation & kadar ralat.
+Average time computed in Prometheus: `…_duration_ms_sum / …_duration_ms_count`. Suitable
+for connecting to Grafana for retrieval/generation latency dashboards & error rate tracking.
 
 ---
 
 ### `POST /ingest`
-Cetus proses ingest semua fail bersokongan (PDF, DOCX, TXT, MD) dalam `DOCS_DIR`
-**secara rekursif** (termasuk subfolder; folder tersembunyi `.` dilangkau).
-Berjalan sebagai **background task** — respons pulang serta-merta; semak log untuk kemajuan.
+Trigger ingestion of all supported files (PDF, DOCX, TXT, MD) in `DOCS_DIR`
+**recursively** (including subfolders; hidden `.` folders are skipped).
+Runs as a **background task** — response returns immediately; check logs for progress.
 
 ```bash
 curl -X POST http://localhost:8080/ingest
 ```
 ```json
-{ "status": "accepted", "message": "Ingest dimulakan di latar belakang. Fail tidak berubah akan dilangkau. Semak log untuk kemajuan." }
+{ "status": "accepted", "message": "Ingest started in background. Unchanged files will be skipped. Check logs for progress." }
 ```
 
-**Ingest tokokan (incremental):** secara lalai, fail yang **tidak berubah** sejak ingest
-terakhir akan **dilangkau** tanpa dibaca atau di-embed semula. Pengesanan perubahan
-berdasarkan **saiz fail + masa ubah suai (mtime)** yang disimpan dalam jadual `documents`
-(`size_bytes`, `mtime_unix`). Ini menjadikan ingest berulang sangat pantas apabila hanya
-sebahagian kecil dokumen berubah.
+**Incremental ingest:** by default, files **unchanged** since the last ingest are
+**skipped** without being read or re-embedded. Change detection is based on
+**file size + modification time (mtime)** stored in the `documents` table
+(`size_bytes`, `mtime_unix`). This makes repeated ingest very fast when only a small
+fraction of documents change.
 
-Untuk **memaksa** ingest semula semua fail (cth. selepas tukar model embedding atau
-saiz chunk), gunakan `?force=true`:
+To **force** re-ingest of all files (e.g. after changing embedding model or chunk size),
+use `?force=true`:
 
 ```bash
 curl -X POST 'http://localhost:8080/ingest?force=true'
 ```
 
-Log akan menunjukkan ringkasan, cth.:
+Logs will show a summary, e.g.:
 ```
-ingest selesai: 3 dokumen, 57 chunk, 12 tidak berubah, 0 dilangkau (ralat)
+ingest complete: 3 documents, 57 chunks, 12 unchanged, 0 skipped (errors)
 ```
 
-> Re-ingest fail yang berubah adalah selamat: chunk lama untuk dokumen itu dibuang dahulu
-> (kunci pada laluan fail), jadi tiada pendua.
+> Re-ingesting a changed file is safe: old chunks for that document are deleted first
+> (keyed on file path), so there are no duplicates.
 
-**Batch embedding:** semasa ingest, chunk diproses dalam kelompok (`EMBED_BATCH_SIZE`,
-lalai 16) — setiap kelompok dijana embeddingnya dalam **satu** panggilan ke endpoint
-`/api/embed` Ollama, dan dimasukkan ke DB dengan **satu** INSERT berbilang baris. Ini
-mengurangkan round-trip HTTP dan overhead DB secara drastik berbanding memproses chunk
-satu demi satu. Naikkan `EMBED_BATCH_SIZE` untuk ingest lebih pantas jika RAM/Ollama
-mengizinkan; turunkan jika berlaku timeout pada kelompok besar.
+**Batch embedding:** during ingest, chunks are processed in batches (`EMBED_BATCH_SIZE`,
+default 16) — each batch generates its embeddings in **one** call to Ollama's `/api/embed`
+endpoint, and is inserted into the DB with **one** multi-row INSERT. This drastically
+reduces HTTP round-trips and DB overhead compared to processing chunks one by one. Increase
+`EMBED_BATCH_SIZE` for faster ingest if RAM/Ollama allows; decrease if large batches timeout.
 
-> Memerlukan versi Ollama yang menyokong endpoint `/api/embed` (kebanyakan pemasangan
-> terkini). Laluan soalan (`/chat`) masih guna `/api/embeddings` untuk embedding tunggal.
+> Requires an Ollama version supporting the `/api/embed` endpoint (most current installs).
+> The question path (`/chat`) still uses `/api/embeddings` for single embeddings.
 
 ---
 
 ### `POST /chat`
-Tanya soalan dan dapatkan jawapan + rujukan.
+Ask a question and get an answer + references.
 
 ```bash
 curl -X POST http://localhost:8080/chat \
   -H 'Content-Type: application/json' \
-  -d '{ "question": "Berapa hari cuti tahunan kakitangan?" }'
+  -d '{ "question": "How many days of annual leave does staff get?" }'
 ```
 ```json
 {
-  "answer": "Mengikut dokumen, cuti tahunan ialah 20 hari ...",
+  "answer": "According to the documents, annual leave is 20 days ...",
   "sources": [
     {
-      "document_id": 3, "filename": "polisi-cuti.pdf", "chunk_index": 5,
+      "document_id": 3, "filename": "leave-policy.pdf", "chunk_index": 5,
       "page": 4,
-      "snippet": "Kakitangan tetap layak mendapat cuti tahunan sebanyak 20 hari setahun …",
+      "snippet": "Permanent staff are entitled to 20 days annual leave per year …",
       "distance": 0.18,
-      "meta": { "category": "hr", "department": "Sumber Manusia", "year": 2024, "security": "dalaman" }
+      "meta": { "category": "hr", "department": "Human Resources", "year": 2024, "security": "internal" }
     }
   ]
 }
 ```
-Medan `sources[]`:
-- `page` — nombor muka surat (1-asas) untuk PDF; tiada untuk TXT/MD/DOCX.
-- `snippet` — petikan ringkas kandungan chunk (ruang putih dimampatkan, ~240 aksara).
-- `distance` — jarak cosine, semakin **kecil** semakin relevan.
-- `meta` — metadata dokumen sumber (lihat [Metadata dokumen](#metadata-dokumen)).
+`sources[]` fields:
+- `page` — page number (1-based) for PDFs; null for TXT/MD/DOCX.
+- `snippet` — brief excerpt of chunk content (whitespace compressed, ~240 characters).
+- `distance` — cosine distance, **smaller** = more relevant.
+- `meta` — source document metadata (see [Metadata](#metadata)).
 
-**Memori perbualan (pilihan):** sertakan `session_id` untuk membolehkan soalan susulan.
-Sistem akan memuat beberapa giliran terakhir sesi itu sebagai konteks, dan menyimpan
-giliran baharu selepas menjawab.
+**Conversation memory (optional):** include `session_id` to enable follow-up questions.
+The system will load the last few turns of that session as context, and save the new turn
+after answering.
 
 ```bash
-# Soalan pertama
+# First question
 curl -X POST http://localhost:8080/chat -H 'Content-Type: application/json' \
-  -d '{ "question": "Berapa hari cuti tahunan?", "session_id": "sesi-ali-123" }'
-# Soalan susulan — faham "kontrak" merujuk cuti tahunan
+  -d '{ "question": "How many days annual leave?", "session_id": "session-ali-123" }'
+# Follow-up — understands "contract" refers to annual leave
 curl -X POST http://localhost:8080/chat -H 'Content-Type: application/json' \
-  -d '{ "question": "Untuk staf kontrak pula?", "session_id": "sesi-ali-123" }'
+  -d '{ "question": "What about for contract staff?", "session_id": "session-ali-123" }'
 ```
 
-> Tanpa `session_id`, setiap soalan dilayan tanpa konteks lampau. Memori boleh
-> dimatikan global dengan `MEMORY_ENABLED=false`.
+> Without `session_id`, each question is handled without past context. Memory can be
+> disabled globally with `MEMORY_ENABLED=false`.
 
-**Penapis metadata (pilihan):** hadkan carian kepada dokumen yang sepadan. Hanya medan
-yang ditetapkan menapis; selebihnya diabaikan.
+**Metadata filtering (optional):** restrict search to matching documents. Only set fields
+filter; others are ignored.
 
 ```bash
 curl -X POST http://localhost:8080/chat -H 'Content-Type: application/json' \
   -d '{
-        "question": "Apakah syarat perolehan?",
-        "filter": { "category": "perolehan", "year": 2024 }
+        "question": "What are the procurement requirements?",
+        "filter": { "category": "procurement", "year": 2024 }
       }'
 ```
 
 ---
 
 ### `POST /chat/stream`
-Sama seperti `/chat`, tetapi **alirkan jawapan token demi token** menggunakan
-Server-Sent Events (SSE) — jawapan terus dipapar ketika model menjananya, tanpa
-menunggu jawapan penuh. Inilah endpoint yang digunakan oleh frontend.
+Same as `/chat`, but **streams the answer token by token** using
+Server-Sent Events (SSE) — the answer displays as the model generates it, without
+waiting for the full response. This is the endpoint used by the frontend.
 
 ```bash
 curl -N -X POST http://localhost:8080/chat/stream \
   -H 'Content-Type: application/json' \
-  -d '{ "question": "Berapa hari cuti tahunan kakitangan?" }'
+  -d '{ "question": "How many days of annual leave does staff get?" }'
 ```
 
-Jujukan event SSE yang dipulangkan:
+SSE event sequence returned:
 
-| Event     | `data`                          | Keterangan |
-|-----------|---------------------------------|------------|
-| `sources` | JSON array `Source[]`           | Dihantar dahulu, sebaik retrieval siap |
-| `token`   | string dipetik JSON, cth. `"cu"`| Banyak event; setiap satu satu potongan teks |
-| `done`    | `[DONE]`                        | Penanda tamat |
-| `error`   | string dipetik JSON             | Jika berlaku ralat semasa penjanaan |
+| Event     | `data`                          | Description |
+|-----------|---------------------------------|-------------|
+| `sources` | JSON array `Source[]`           | Sent first, as soon as retrieval completes |
+| `token`   | JSON-quoted string, e.g. `"cu"` | Many events; each is one text chunk |
+| `done`    | `[DONE]`                        | End marker |
+| `error`   | JSON-quoted string              | If an error occurs during generation |
 
-Contoh aliran mentah:
+Raw stream example:
 ```
 event: sources
-data: [{"document_id":3,"filename":"polisi-cuti.pdf","chunk_index":5,"distance":0.18}]
+data: [{"document_id":3,"filename":"leave-policy.pdf","chunk_index":5,"distance":0.18}]
 
 event: token
-data: "Mengikut "
+data: "According to "
 
 event: token
-data: "dokumen, cuti "
+data: "the documents, leave "
 
 event: done
 data: [DONE]
 ```
 
-> **Nota klien:** `token` (dan `error`) dipetik sebagai JSON supaya aksara baris baru
-> dalam jawapan dihantar dengan selamat dalam satu medan `data:`. Klien perlu
-> `JSON.parse()` nilai tersebut sebelum memaparkannya (lihat [static/index.html](static/index.html)).
-> Oleh sebab badan permintaan diperlukan (POST), gunakan `fetch()` + pembaca aliran,
-> bukan `EventSource` native (yang hanya menyokong GET).
+> **Client note:** `token` (and `error`) are JSON-quoted so newline characters in
+> answers are safely sent in a single `data:` field. Clients must `JSON.parse()` the
+> value before displaying (see [static/index.html](static/index.html)).
+> Since a request body is needed (POST), use `fetch()` + stream reader,
+> not native `EventSource` (which only supports GET).
 
 ---
 
 ### `GET /documents`
-Senaraikan semua dokumen yang telah di-ingest, beserta bilangan chunk setiap satu.
+List all ingested documents, with chunk count for each.
 
 ```bash
 curl http://localhost:8080/documents \
-  -H 'Authorization: Bearer <API_KEY>'   # jika API_KEY ditetapkan
+  -H 'Authorization: Bearer <API_KEY>'   # if API_KEY is set
 ```
 ```json
 {
@@ -637,8 +637,8 @@ curl http://localhost:8080/documents \
   "documents": [
     {
       "id": 3,
-      "filename": "polisi-cuti.pdf",
-      "path": "/opt/tsuyu-rag/docs/polisi-cuti.pdf",
+      "filename": "leave-policy.pdf",
+      "path": "/opt/tsuyu-rag/docs/leave-policy.pdf",
       "size_bytes": 184320,
       "mtime_unix": 1748764800,
       "chunk_count": 12,
@@ -651,28 +651,28 @@ curl http://localhost:8080/documents \
 ---
 
 ### `DELETE /documents/:id`
-Padam satu dokumen dan **semua chunknya** (via `ON DELETE CASCADE`).
+Delete one document and **all its chunks** (via `ON DELETE CASCADE`).
 
 ```bash
 curl -X DELETE http://localhost:8080/documents/3 \
-  -H 'Authorization: Bearer <API_KEY>'   # jika API_KEY ditetapkan
+  -H 'Authorization: Bearer <API_KEY>'   # if API_KEY is set
 ```
 ```json
 { "deleted": true, "id": 3 }
 ```
-Pulang **404 Not Found** jika dokumen dengan id tersebut tidak wujud.
+Returns **404 Not Found** if a document with that id doesn't exist.
 
-> Untuk membuang dokumen daripada sistem sepenuhnya, padam juga fail asalnya dari
-> `DOCS_DIR` — jika tidak, ingest berikutnya akan memasukkannya semula.
+> To remove a document from the system entirely, also delete the original file from
+> `DOCS_DIR` — otherwise the next ingest will re-add it.
 
 ---
 
 ### `DELETE /sessions/:id`
-Kosongkan memori perbualan bagi satu sesi (padam semua mesej sesi tersebut).
+Clear conversation memory for one session (delete all messages for that session).
 
 ```bash
-curl -X DELETE http://localhost:8080/sessions/sesi-ali-123 \
-  -H 'Authorization: Bearer <API_KEY>'   # jika API_KEY ditetapkan
+curl -X DELETE http://localhost:8080/sessions/session-ali-123 \
+  -H 'Authorization: Bearer <API_KEY>'   # if API_KEY is set
 ```
 ```json
 { "cleared": true, "messages_deleted": 4 }
@@ -680,373 +680,371 @@ curl -X DELETE http://localhost:8080/sessions/sesi-ali-123 \
 
 ---
 
-### UI pengurusan dokumen (`GET /admin`)
+### Document management UI (`GET /admin`)
 
-Halaman web dirender pelayan (templat **Askama**) untuk memudahkan ingest tanpa `curl`:
-melihat senarai dokumen + metadata + bilangan chunk, mencetus ingest (biasa/paksa), dan
-memadam dokumen. Halaman terbuka (seperti `/`); tindakan ingest/padam menghantar
-`ADMIN_API_KEY` yang dimasukkan pada halaman sebagai header `Authorization: Bearer`.
+A server-rendered web page (**Askama** templates) to simplify ingest without `curl`:
+view document list + metadata + chunk counts, trigger ingest (normal/force), and delete
+documents. Page is open (like `/`); ingest/delete actions send the `ADMIN_API_KEY`
+entered on the page as an `Authorization: Bearer` header.
 
-Laluan sokongan yang memulangkan HTML (digunakan oleh halaman itu sendiri):
-`GET /admin/documents` (fragmen jadual), `POST /admin/ingest`, `DELETE /admin/documents/:id`.
-Endpoint JSON `/documents`, `/ingest` kekal untuk automasi.
+Supporting paths returning HTML (used by the page itself):
+`GET /admin/documents` (table fragment), `POST /admin/ingest`, `DELETE /admin/documents/:id`.
+JSON endpoints `/documents`, `/ingest` remain for automation.
 
 ---
 
-## Aliran kerja biasa
+## Common workflow
 
 ```bash
-# 1. Pastikan infra hidup
+# 1. Ensure infra is up
 curl http://localhost:8080/health
 
-# 2. Letak dokumen dalam DOCS_DIR
-cp ~/dokumen-tsuyu/*.pdf /opt/tsuyu-rag/docs/
+# 2. Place documents in DOCS_DIR
+cp ~/tsuyu-docs/*.pdf /opt/tsuyu-rag/docs/
 
 # 3. Ingest
 curl -X POST http://localhost:8080/ingest
-#    (pantau: journalctl -u tsuyu-rag -f  ATAU  log terminal cargo run)
+#    (monitor: journalctl -u tsuyu-rag -f  OR  cargo run terminal log)
 
-# 4. Berbual
+# 4. Chat
 curl -X POST http://localhost:8080/chat \
   -H 'Content-Type: application/json' \
-  -d '{ "question": "Soalan anda di sini" }'
+  -d '{ "question": "Your question here" }'
 ```
 
 ---
 
-## Guardrail anti-halusinasi
+## Anti-hallucination guardrails
 
-Untuk memastikan LLM **hanya menjawab dari dokumen TSUYU** (dan tidak mereka jawapan),
-sistem menggunakan beberapa lapisan pertahanan:
+To ensure the LLM **only answers from TSUYU documents** (and doesn't fabricate answers),
+the system uses several layers of defense:
 
-1. **Ambang relevansi (pra-LLM)** — lapisan paling kukuh. Sebelum memanggil LLM, sistem
-   menyemak skor relevansi konteks terbaik:
-   - Bila reranker hidup: `rerank_score` chunk terbaik mesti ≥ `RELEVANCE_MIN_RERANK`.
-   - Bila reranker mati: jarak cosine terkecil mesti ≤ `RELEVANCE_MAX_DISTANCE`.
-   - Jika gagal → terus pulang **"maklumat tidak dijumpai dalam dokumen TSUYU"** tanpa
-     memanggil Ollama. Ini menghalang halusinasi secara **deterministik** (model tak
-     berpeluang menjawab) dan menjimatkan masa/sumber.
-2. **Prompt grounding** — arahan tegas: *"Gunakan HANYA maklumat dalam KONTEKS… Jika tiada,
-   katakan tidak menjumpai. Jangan reka jawapan."*
-3. **Pengasingan data vs arahan** — lihat [mitigasi prompt injection](#nota-reka-bentuk).
+1. **Relevance threshold (pre-LLM)** — the strongest layer. Before calling the LLM, the system
+   checks the best context's relevance score:
+   - When reranker is on: best chunk `rerank_score` must be ≥ `RELEVANCE_MIN_RERANK`.
+   - When reranker is off: smallest cosine distance must be ≤ `RELEVANCE_MAX_DISTANCE`.
+   - If it fails → directly return **"information not found in TSUYU documents"** without
+     calling Ollama. This blocks hallucinations **deterministically** (model gets no chance
+     to answer) and saves time/resources.
+2. **Prompt grounding** — firm instructions: *"Use ONLY information in the CONTEXT… If none,
+   say not found. Do not fabricate answers."*
+3. **Data vs instructions separation** — see [prompt injection mitigation](#design-notes).
 
-**Menala ambang:**
-- Terlalu banyak soalan sah ditolak? → **longgarkan**: turunkan `RELEVANCE_MIN_RERANK`
-  (cth. `-2.0`) atau naikkan `RELEVANCE_MAX_DISTANCE` (cth. `1.3`).
-- LLM masih jawab di luar dokumen? → **ketatkan**: naikkan `RELEVANCE_MIN_RERANK`
-  (cth. `1.0`) atau turunkan `RELEVANCE_MAX_DISTANCE` (cth. `0.7`).
-- Matikan sepenuhnya dengan `RELEVANCE_ENABLED=false` (LLM sentiasa dipanggil; bergantung
-  pada prompt grounding sahaja).
+**Tuning thresholds:**
+- Too many valid questions rejected? → **loosen**: lower `RELEVANCE_MIN_RERANK`
+  (e.g. `-2.0`) or raise `RELEVANCE_MAX_DISTANCE` (e.g. `1.3`).
+- LLM still answers outside documents? → **tighten**: raise `RELEVANCE_MIN_RERANK`
+  (e.g. `1.0`) or lower `RELEVANCE_MAX_DISTANCE` (e.g. `0.7`).
+- Disable entirely with `RELEVANCE_ENABLED=false` (LLM always called; relies on prompt
+  grounding only).
 
-> **Tip kalibrasi:** perhatikan medan `distance` dalam `sources[]` respons `/chat` untuk
-> soalan yang anda *tahu* dijawab betul, lalu tetapkan ambang sedikit lebih longgar daripada
-> nilai itu. Dengan reranker, skor lebih bermakna daripada jarak cosine mentah.
+> **Calibration tip:** observe the `distance` field in `sources[]` responses from `/chat` for
+> questions you *know* are answered correctly, then set the threshold slightly looser than
+> that value. With the reranker, scores are more meaningful than raw cosine distance.
 
 ---
 
-## Metadata dokumen
+## Metadata
 
-Setiap dokumen boleh disertakan **metadata** melalui fail **sidecar** bernama
-`<nama-dokumen>.meta.json` dalam folder yang sama. Contohnya, untuk `polisi-cuti.pdf`,
-cipta `polisi-cuti.pdf.meta.json`:
+Each document can include **metadata** via a **sidecar** file named
+`<document-name>.meta.json` in the same folder. For example, for `leave-policy.pdf`,
+create `leave-policy.pdf.meta.json`:
 
 ```json
 {
   "category": "hr",
-  "department": "Bahagian Sumber Manusia",
+  "department": "Human Resources Division",
   "year": 2024,
-  "security": "dalaman"
+  "security": "internal"
 }
 ```
 
-| Medan        | Jenis  | Contoh | Kegunaan |
-|--------------|--------|--------|----------|
-| `category`   | teks   | `kontrak`, `polisi`, `perolehan`, `hr` | Jenis dokumen |
-| `department` | teks   | `Bahagian Sumber Manusia` | Jabatan/bahagian pemilik |
-| `year`       | nombor | `2024` | Tahun dokumen |
-| `security`   | teks   | `awam`, `dalaman`, `sulit` | Tahap keselamatan |
+| Field        | Type   | Example | Use |
+|--------------|--------|---------|-----|
+| `category`   | text   | `contract`, `policy`, `procurement`, `hr` | Document type |
+| `department` | text   | `Human Resources Division` | Owning department |
+| `year`       | number | `2024` | Document year |
+| `security`   | text   | `public`, `internal`, `confidential` | Security level |
 
-- **Semua medan pilihan** — dokumen tanpa sidecar tetap di-ingest (metadata kosong).
-- Metadata disimpan pada peringkat **dokumen** (dikongsi oleh semua chunknya).
-- Metadata dikembalikan dalam `sources[].meta` setiap jawapan, dan boleh **menapis**
-  carian melalui medan `filter` dalam `/chat` (lihat [POST /chat](#post-chat)).
-- **Mengubah sidecar mencetuskan re-ingest**: ingest tokokan mengambil kira mtime
-  sidecar, jadi mengemas kini `.meta.json` sahaja sudah cukup untuk metadata baharu
-  digunakan (tidak perlu `?force=true`).
+- **All fields optional** — documents without a sidecar are still ingested (empty metadata).
+- Metadata is stored at the **document** level (shared by all its chunks).
+- Metadata is returned in `sources[].meta` in every answer, and can **filter**
+  searches via the `filter` field in `/chat` (see [POST /chat](#post-chat)).
+- **Updating a sidecar triggers re-ingest**: incremental ingest checks the sidecar's
+  mtime, so updating only the `.meta.json` is enough for new metadata to take effect
+  (no need for `?force=true`).
 
 ---
 
-## Kad Watak (persona)
+## Character Card (persona)
 
-Persona pembantu boleh **ditala oleh admin** tanpa mengubah kod — nama, peranan, nada,
-bahasa, panjang jawapan, emoji, dan peraturan khas. Ia disuntik ke dalam *system prompt*.
+The assistant persona can be **tuned by an admin** without changing code — name, role,
+tone, language, answer length, emoji, and special rules. It is injected into the system prompt.
 
-Disimpan sebagai fail JSON di `CHARACTER_CARD_PATH` (lalai `character.json`). Jika fail
-tiada, persona lalai yang munasabah digunakan. Contoh:
+Stored as a JSON file at `CHARACTER_CARD_PATH` (default `character.json`). If the file
+is absent, a sensible default persona is used. Example:
 
 ```json
 {
   "name": "Ayu",
-  "role": "Pembantu pegawai TSUYU",
-  "tone": "Formal tetapi mesra",
+  "role": "TSUYU officer assistant",
+  "tone": "Formal but friendly",
   "language": "Bahasa Malaysia",
   "verbosity": "medium",
   "emoji": false,
   "special_rules": [
-    "Sentiasa gunakan istilah rasmi kerajaan",
-    "Berikan rujukan dokumen jika ada"
+    "Always use official government terminology",
+    "Provide document references when available"
   ]
 }
 ```
 
-- `verbosity`: `short` | `medium` | `long`. Medan yang hilang dalam JSON guna lalai.
-- **Cara edit:** UI `/admin` (bahagian "Kad Watak") — perubahan **berkuat kuasa
-  serta-merta** untuk soalan seterusnya; atau edit fail terus & mula semula.
-- **API:** `GET /admin/character` (baca), `PUT /admin/character` (kemas kini, auth admin).
-- **Keselamatan:** persona ialah input admin dipercayai, tetapi peraturan keras
-  (jawab dari konteks sahaja + anti-injection) dirantai **selepas** persona dalam prompt,
-  jadi kad watak tidak boleh melemahkan guardrail.
+- `verbosity`: `short` | `medium` | `long`. Missing fields use defaults.
+- **How to edit:** UI `/admin` (Character Card section) — changes take **effect immediately**
+  for subsequent questions; or edit the file directly & restart.
+- **API:** `GET /admin/character` (read), `PUT /admin/character` (update, admin auth).
+- **Security:** persona is trusted admin input, but hard rules
+  (answer from context only + anti-injection) are chained **after** the persona in the prompt,
+  so the character card cannot weaken guardrails.
 
 ---
 
-## Struktur projek
+## Project structure
 
 ```
 tsuyu-rag-chatbot/
 ├── Cargo.toml
 ├── .env.example
-├── migrations/                 # migrasi skema sqlx (sumber sebenar skema)
+├── migrations/                 # sqlx schema migrations (actual schema source)
 │   └── 0001_initial.sql
-├── .sqlx/                      # cache query masa-kompil (di-commit; build offline tanpa DB)
-├── schema.sql                  # snapshot skema (rujukan sahaja)
+├── .sqlx/                      # compile-time query cache (committed; offline build without DB)
+├── schema.sql                  # schema snapshot (reference only)
 ├── README.md
 ├── deploy/
-│   └── tsuyu-rag.service        # unit systemd contoh
-├── templates/                 # templat Askama (UI admin, dirender pelayan)
+│   └── tsuyu-rag.service        # example systemd unit
+├── templates/                 # Askama templates (admin UI, server-rendered)
 │   ├── admin.html
 │   └── documents_table.html
 ├── static/
-│   └── index.html              # frontend chat ringkas
+│   └── index.html              # lightweight chat frontend
 ├── tests/
-│   └── integration.rs          # ujian integrasi DB via lib crate (bergerbang TEST_DATABASE_URL)
+│   └── integration.rs          # DB integration tests via lib crate (gated by TEST_DATABASE_URL)
 └── src/
-    ├── main.rs                 # titik masuk NIPIS: #[tokio::main] → tsuyu_rag_chatbot::run()
-    ├── lib.rs                  # titik masuk sebenar: run(), parse argumen, setup, dispatch perintah
-    ├── cli.rs                  # perintah CLI: ingest/check/stats/prune-sessions/ask
-    ├── config.rs               # baca konfigurasi dari persekitaran
-    ├── auth.rs                  # middleware pengesahan API key (Bearer)
-    ├── ratelimit.rs             # middleware had kadar per-IP (+ ujian unit)
-    ├── metrics.rs               # kaunter atomik + render Prometheus (+ ujian unit)
-    ├── error.rs                # AppError → respons HTTP (tiada unwrap)
-    ├── state.rs                # AppState dikongsi (config, pool, http client)
+    ├── main.rs                 # THIN entry point: #[tokio::main] → tsuyu_rag_chatbot::run()
+    ├── lib.rs                  # actual entry point: run(), arg parsing, setup, command dispatch
+    ├── cli.rs                  # CLI commands: ingest/check/stats/prune-sessions/ask
+    ├── config.rs               # read config from environment
+    ├── auth.rs                 # API key auth middleware (Bearer)
+    ├── ratelimit.rs            # per-IP rate limiting middleware (+ unit tests)
+    ├── metrics.rs              # atomic counters + Prometheus render (+ unit tests)
+    ├── error.rs                # AppError → HTTP response (no unwraps)
+    ├── state.rs                # shared AppState (config, pool, http client)
     ├── db.rs                   # pool, run_migrations + reconcile dim/fts, vector_literal()
-    ├── models.rs               # struct request/response
+    ├── models.rs               # request/response structs
     ├── handlers/
-    │   ├── mod.rs              # router (terbuka + dilindungi) + frontend
+    │   ├── mod.rs              # router (open + protected) + frontend
     │   ├── health.rs           # GET /health (DB + Ollama + reranker)
     │   ├── metrics.rs          # GET /metrics (Prometheus)
     │   ├── ingest.rs           # POST /ingest
-    │   ├── chat.rs             # POST /chat, POST /chat/stream (retrieve→rerank→jana)
+    │   ├── chat.rs             # POST /chat, POST /chat/stream (retrieve→rerank→generate)
     │   ├── documents.rs        # GET /documents, DELETE /documents/:id
-    │   ├── admin.rs            # UI pengurusan dokumen (Askama): GET /admin + tindakan HTML
-    │   └── sessions.rs         # DELETE /sessions/:id (kosongkan memori)
+    │   ├── admin.rs            # document management UI (Askama): GET /admin + HTML actions
+    │   └── sessions.rs         # DELETE /sessions/:id (clear memory)
     └── services/
         ├── mod.rs
-        ├── character.rs        # kad watak (persona) — ditala admin (+ ujian unit)
-        ├── chunk.rs            # pemecahan teks ikut token BPE (+ ujian unit)
-        ├── embed.rs            # panggilan embedding Ollama (tunggal + batch)
-        ├── retrieve.rs         # carian vektor + kata kunci + hybrid RRF (+ ujian unit)
-        ├── rerank.rs           # reranking cross-encoder (servis luar)
-        ├── retry.rs            # retry + backoff untuk panggilan Ollama/reranker
-        ├── generate.rs         # bina prompt + jana + tapis <think> (+ ujian unit)
-        ├── ingest.rs           # pipeline ingest (baca → chunk → embed → simpan)
-        ├── memory.rs           # memori perbualan (muat/simpan sesi)
-        ├── metadata.rs         # baca sidecar .meta.json (+ ujian unit)
-        └── documents.rs        # senarai & padam dokumen
+        ├── character.rs        # character card (persona) — admin-tunable (+ unit tests)
+        ├── chunk.rs            # BPE token-based text splitting (+ unit tests)
+        ├── embed.rs            # Ollama embedding calls (single + batch)
+        ├── retrieve.rs         # vector + keyword + hybrid RRF search (+ unit tests)
+        ├── rerank.rs           # cross-encoder reranking (external service)
+        ├── retry.rs            # retry + backoff for Ollama/reranker calls
+        ├── generate.rs         # prompt building + generation + <think> filter (+ unit tests)
+        ├── ingest.rs           # ingest pipeline (read → chunk → embed → save)
+        ├── memory.rs           # conversation memory (load/save session)
+        ├── metadata.rs         # read .meta.json sidecar (+ unit tests)
+        └── documents.rs        # list & delete documents
 ```
 
 ---
 
-## Ujian
+## Tests
 
 ```bash
 cargo test
 ```
 
-**Ujian unit** (tiada kebergantungan luaran) meliputi:
-- **Logik chunking** ([src/services/chunk.rs](src/services/chunk.rs)) — teks kosong,
-  chunk tunggal, pecahan teks panjang, pertindihan token, dan had overlap.
-- **Pembinaan prompt + penapis thinking** ([src/services/generate.rs](src/services/generate.rs)).
-- **Gabungan RRF hybrid** ([src/services/retrieve.rs](src/services/retrieve.rs)).
-- **Petikan ringkas** ([src/handlers/chat.rs](src/handlers/chat.rs)).
-- **Had kadar** ([src/ratelimit.rs](src/ratelimit.rs)) & **padanan model** ([src/handlers/health.rs](src/handlers/health.rs)).
+**Unit tests** (no external dependencies) cover:
+- **Chunking logic** ([src/services/chunk.rs](src/services/chunk.rs)) — empty text,
+  single chunk, long text splitting, token overlap, and overlap limits.
+- **Prompt building + thinking filter** ([src/services/generate.rs](src/services/generate.rs)).
+- **Hybrid RRF fusion** ([src/services/retrieve.rs](src/services/retrieve.rs)).
+- **Brief snippet** ([src/handlers/chat.rs](src/handlers/chat.rs)).
+- **Rate limiting** ([src/ratelimit.rs](src/ratelimit.rs)) & **model matching** ([src/handlers/health.rs](src/handlers/health.rs)).
 
-**Ujian integrasi** ([tests/integration.rs](tests/integration.rs)) — crate ujian
-berasingan yang mengakses API melalui **lib crate** (`tsuyu_rag_chatbot`), memerlukan
-PostgreSQL + pgvector sebenar, **bergerbang** oleh `TEST_DATABASE_URL`. Tanpa env itu,
-ujian dilangkau secara bersih (tidak gagal). Untuk menjalankannya:
+**Integration tests** ([tests/integration.rs](tests/integration.rs)) — a separate test
+crate that accesses the API via the **lib crate** (`tsuyu_rag_chatbot`), requires real
+PostgreSQL + pgvector, **gated** by `TEST_DATABASE_URL`. Without that env var, tests are
+cleanly skipped (not failed). To run them:
 
 ```bash
-# Sediakan DB ujian (sekali) dengan pgvector:
+# Set up test DB (once) with pgvector:
 createdb tsuyu_rag_test && psql -d tsuyu_rag_test -c 'CREATE EXTENSION IF NOT EXISTS vector'
 
-# Jalankan ujian integrasi (WAJIB bersiri — setiap ujian mengosongkan jadual dikongsi):
+# Run integration tests (MUST be serial — each test clears shared tables):
 TEST_DATABASE_URL=postgres://tsuyu:password@localhost/tsuyu_rag_test \
     cargo test --test integration -- --test-threads=1
 ```
 
-> Struktur: `src/main.rs` ialah pembalut nipis (`#[tokio::main]` → `run()`); semua logik
-> berada dalam `src/lib.rs` + submodul, supaya ujian integrasi boleh mengaksesnya melalui
-> pustaka. Lihat [Struktur projek](#struktur-projek).
+> Structure: `src/main.rs` is a thin wrapper (`#[tokio::main]` → `run()`); all logic
+> lives in `src/lib.rs` + submodules, so integration tests can access it via the library.
+> See [Project structure](#project-structure).
 
-Liputan integrasi: memori sesi (simpan/muat/had/clear), pengurusan dokumen
-(senarai/padam/cascade chunk), dan idempotensi skema. Skema ujian dikosongkan sebelum
-setiap kes, jadi gunakan **pangkalan data berasingan** (bukan DB pengeluaran).
+Integration coverage: session memory (save/load/limit/clear), document management
+(list/delete/chunk cascade), and schema idempotency. The test schema is cleared before
+each case, so use a **separate database** (not the production DB).
 
 ---
 
-## Deploy ke Ubuntu (systemd)
+## Deploy to Ubuntu (systemd)
 
-Ubuntu guna **systemd** (bukan NSSM). Fail unit contoh: [deploy/tsuyu-rag.service](deploy/tsuyu-rag.service).
+Ubuntu uses **systemd** (not NSSM). Example unit file: [deploy/tsuyu-rag.service](deploy/tsuyu-rag.service).
 
 ```bash
-# 1. Build & letak binary
+# 1. Build & place binary
 cargo build --release
 sudo mkdir -p /opt/tsuyu-rag/docs
 sudo cp target/release/tsuyu-rag-chatbot /opt/tsuyu-rag/
 sudo cp .env /opt/tsuyu-rag/.env
 
-# 2. Pasang unit systemd
+# 2. Install systemd unit
 sudo cp deploy/tsuyu-rag.service /etc/systemd/system/tsuyu-rag.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now tsuyu-rag
 sudo systemctl status tsuyu-rag
 
-# 3. Lihat log
+# 3. View logs
 journalctl -u tsuyu-rag -f
 ```
 
-> **Penting:** service systemd **tidak** mewarisi env shell. Unit menggunakan
-> `EnvironmentFile=/opt/tsuyu-rag/.env` untuk memuat konfigurasi dari laluan mutlak.
+> **Important:** the systemd service **does not** inherit the shell environment. The unit
+> uses `EnvironmentFile=/opt/tsuyu-rag/.env` to load config from an absolute path.
 
-### Servis reranker
+### Reranker service
 
-Jika `RERANK_ENABLED=true`, servis reranker mesti hidup sebelum aplikasi boleh menjawab.
-Cara paling mudah ialah Docker (lihat bahagian setup). Pastikan ia auto-start — sama ada
-melalui `--restart unless-stopped` pada kontena Docker, atau unit systemd tersendiri.
-Jika anda menjalankan reranker pada mesin/port lain, kemas kini `RERANKER_URL` dalam `.env`.
+If `RERANK_ENABLED=true`, the reranker service must be up before the application can answer.
+The easiest way is Docker (see setup section). Ensure it auto-starts — either via
+`--restart unless-stopped` on the Docker container, or its own systemd unit.
+If you run the reranker on a different machine/port, update `RERANKER_URL` in `.env`.
 
-### (Pilihan) Reverse proxy + keselamatan dalaman
+### (Optional) Reverse proxy + internal security
 
-Letak Nginx di depan untuk TLS, dan hadkan akses dengan `ufw` supaya hanya subnet
-dalaman TSUYU boleh sambung. `proxy_pass` ke `127.0.0.1:8080`.
+Put Nginx in front for TLS, and restrict access with `ufw` so only TSUYU's internal
+subnet can connect. `proxy_pass` to `127.0.0.1:8080`.
 
-### Padanan konsep Windows → Ubuntu
+### Windows → Ubuntu concept mapping
 
-| Windows (sedia ada)       | Ubuntu (baru)                  |
+| Windows (existing)        | Ubuntu (new)                   |
 |---------------------------|--------------------------------|
 | NSSM service              | systemd unit                   |
-| `nssm set AppDirectory`   | `WorkingDirectory=` dalam unit |
-| `.env` via dotenv path    | `EnvironmentFile=` dalam unit  |
-| `tsuyu-log` (tail log)     | `journalctl -u tsuyu-rag -f`    |
-| restart service manual    | `Restart=on-failure` (auto)    |
+| `nssm set AppDirectory`   | `WorkingDirectory=` in unit    |
+| `.env` via dotenv path    | `EnvironmentFile=` in unit     |
+| `tsuyu-log` (tail log)    | `journalctl -u tsuyu-rag -f`   |
+| manual service restart    | `Restart=on-failure` (auto)    |
 
 ---
 
-## Penyelesaian masalah
+## Troubleshooting
 
-| Gejala | Kemungkinan punca & tindakan |
-|--------|------------------------------|
-| `/health` pulang `database: false` | PostgreSQL tidak hidup, `DATABASE_URL` salah, atau sambungan `vector` belum dipasang. |
-| `/health` pulang `ollama: false` | Ollama tidak hidup (`systemctl status ollama`) atau `OLLAMA_URL` salah. |
-| `/health` pulang `reranker: false` | Servis reranker tidak hidup atau `RERANKER_URL` salah. Matikan dengan `RERANK_ENABLED=false` jika tidak digunakan. |
-| `/health` pulang `models.gen`/`models.embed`: false | Model belum di-`pull`. Jalankan `ollama pull <GEN_MODEL>` / `ollama pull <EMBED_MODEL>`. |
-| Ingest langkau semua fail | Periksa `DOCS_DIR` betul & ada fail `.pdf/.docx/.txt/.md`. Lihat log `journalctl`. |
-| Jawapan kosong / "tidak menjumpai maklumat" | Dokumen belum di-ingest, atau soalan di luar skop dokumen. |
-| Ralat dimensi vector | Pastikan `EMBED_DIM` sepadan model (bge-m3=1024). Selepas tukar model/dimensi, jalankan `POST /ingest?force=true`. |
-| Jawapan ada teks `<think>` | Tetapkan `GEN_THINK=false` (lalai). Penapis juga membuang blok ini secara automatik. |
-| Embedding "kosong" dari Ollama | Model embedding belum di-`pull` atau nama model salah. |
+| Symptom | Possible cause & action |
+|---------|------------------------|
+| `/health` returns `database: false` | PostgreSQL not running, wrong `DATABASE_URL`, or `vector` extension not installed. |
+| `/health` returns `ollama: false` | Ollama not running (`systemctl status ollama`) or wrong `OLLAMA_URL`. |
+| `/health` returns `reranker: false` | Reranker service not running or wrong `RERANKER_URL`. Disable with `RERANK_ENABLED=false` if not in use. |
+| `/health` returns `models.gen`/`models.embed`: false | Model not pulled. Run `ollama pull <GEN_MODEL>` / `ollama pull <EMBED_MODEL>`. |
+| Ingest skips all files | Check `DOCS_DIR` is correct & has `.pdf/.docx/.txt/.md` files. Check `journalctl` logs. |
+| Empty answers / "information not found" | Documents not ingested, or question is out of scope of documents. |
+| Vector dimension error | Ensure `EMBED_DIM` matches model (bge-m3=1024). After changing model/dimension, run `POST /ingest?force=true`. |
+| Answer contains `<think>` text | Set `GEN_THINK=false` (default). The filter also strips these blocks automatically. |
+| "Empty" embeddings from Ollama | Embedding model not pulled or wrong model name. |
 
-Untuk log lebih terperinci:
+For more detailed logs:
 ```bash
 RUST_LOG=tsuyu_rag_chatbot=debug cargo run
 ```
 
 ---
 
-## Nota reka bentuk
+## Design notes
 
-- **Tiada `unwrap()`/`expect()`** dalam kod produksi — semua ralat dikendalikan melalui
-  `?`, `match`, dan jenis `AppError` (thiserror untuk domain, anyhow untuk lapisan atas).
-- **Semua I/O async** (tokio): DB, HTTP ke Ollama, dan baca fail. Operasi blocking
-  (baca PDF/DOCX) dilarikan dalam `spawn_blocking`.
-- **Query sqlx runtime** (bukan makro `query!` compile-time) supaya boleh kompil tanpa
-  DB hidup. Boleh ditukar ke makro compile-time jika mahu semakan ketat.
-- **Chunking ikut token sebenar**: saiz chunk dikira dalam token BPE (`cl100k_base` via
-  tiktoken-rs), bukan kiraan perkataan — lebih konsisten dengan had konteks model dan
-  lebih tepat untuk teks campuran (BM, tanda baca). Tokenizer terbenam dalam binari (tiada
-  fail luaran) dan dimuat sekali ke `AppState`. Lihat [src/services/chunk.rs](src/services/chunk.rs).
-- **Petikan kaya**: setiap chunk merekod nombor muka surat (PDF di-ekstrak per-muka-surat
-  via `extract_text_by_pages`); rujukan dalam `sources[]` menyertakan `page` + `snippet`
-  teks sebenar untuk kebolehpercayaan. Format tanpa muka surat (TXT/MD/DOCX) → `page` null.
-- **Ingest idempotent**: dokumen dikenali melalui laluan fail (`UNIQUE`); re-ingest
-  membuang chunk lama dalam satu transaksi sebelum memasukkan yang baru.
-- **Batch ingest**: embedding & INSERT dilakukan secara berkelompok (`EMBED_BATCH_SIZE`)
-  untuk mengurangkan round-trip HTTP ke Ollama dan overhead pangkalan data.
-- **Ingest tokokan (incremental)**: fail tidak berubah dilangkau berdasarkan saiz + mtime
-  (`size_bytes`, `mtime_unix`); guna `?force=true` untuk paksa ingest semula.
-- **Ingest rekursif**: `DOCS_DIR` dijelajah termasuk subfolder (stack eksplisit, bukan
-  rekursi async); folder tersembunyi dilangkau. Lihat `list_supported_files`.
-- **Retry + backoff Ollama**: panggilan ke Ollama & reranker dicuba semula bagi ralat
-  sementara (timeout/connect/5xx/429) dengan exponential backoff (`OLLAMA_MAX_RETRIES`,
-  `OLLAMA_RETRY_BASE_MS`); ralat 4xx kekal tidak dicuba semula. Untuk `/chat/stream`, hanya
-  panggilan awal dicuba semula. Lihat [src/services/retry.rs](src/services/retry.rs).
-- **Pengesahan dua peringkat**: middleware API key (`Authorization: Bearer`) dengan peranan
-  pengguna (`API_KEY`) vs admin (`ADMIN_API_KEY`); admin ⊇ pengguna; admin jatuh balik ke
-  `API_KEY` jika tak ditetapkan. Perbandingan masa-tetap; `/health` & frontend terbuka.
-  Lihat [src/auth.rs](src/auth.rs).
-- **Had kadar & saiz badan**: middleware fixed-window per-IP (`RATE_LIMIT_RPM`, → 429 jika
-  dilampaui) + `DefaultBodyLimit` (`MAX_BODY_BYTES`). Tanpa dependency luaran; gagal-selamat
-  (benarkan) jika kunci teracun. Lihat [src/ratelimit.rs](src/ratelimit.rs).
-- **Graceful shutdown**: pelayan tangani **SIGTERM** (systemd) & **Ctrl-C**, menyiapkan
-  permintaan dalam terbang sebelum keluar (`axum ... with_graceful_shutdown`). Lihat `main::shutdown_signal`.
-- **Mitigasi prompt injection**: input tidak dipercayai (kandungan dokumen, soalan, sejarah)
-  dineutralkan — baris penanda palsu (`=== ... ===`) dilucutkan supaya tak boleh memalsukan
-  struktur prompt — dan arahan sistem menegaskan kandungan ialah **DATA, bukan arahan**.
-  Lihat `generate::sanitize_untrusted` (+ ujian).
-- **Guardrail relevansi (anti-halusinasi)**: sebelum memanggil LLM, sistem semak sama ada
-  konteks yang diambil cukup relevan — guna skor reranker (`RELEVANCE_MIN_RERANK`) atau jarak
-  cosine (`RELEVANCE_MAX_DISTANCE`). Jika tidak lepas ambang, terus pulang mesej "tidak
-  dijumpai dalam dokumen TSUYU" **tanpa memanggil LLM** — menghalang jawapan luar konteks
-  secara deterministik. Gabung dengan arahan prompt "guna HANYA konteks". Lihat
-  `chat::nilai_relevan` (+ ujian) & [Guardrail anti-halusinasi](#guardrail-anti-halusinasi).
-- **Metrik & pemerhatian**: kaunter atomik (`AtomicU64`) dalam `AppState` diinstrumen pada
-  pipeline chat/ingest (kiraan, ralat, masa retrieval/generation); didedahkan sebagai teks
-  Prometheus di `GET /metrics` — tanpa crate Prometheus. Lihat [src/metrics.rs](src/metrics.rs).
-- **Pengurusan dokumen**: `GET /documents` (senarai + kiraan chunk) dan
-  `DELETE /documents/:id` (padam + cascade chunk). Frontend ada panel ringkas untuk ini.
-- **Embedding sebagai literal teks** `'[...]'::vector` — lihat `db::vector_literal()`.
-- **Hybrid search**: gabung carian vektor (pgvector) + kata kunci (`tsvector`/GIN, dijana
-  automatik) menggunakan **Reciprocal Rank Fusion** — tanpa enjin BM25 berasingan, kekal
-  satu DB. Logik RRF ialah fungsi tulen yang diuji. Lihat [src/services/retrieve.rs](src/services/retrieve.rs).
-- **Reranking dua peringkat**: carian luas (`RETRIEVE_N`) → cross-encoder
-  (`bge-reranker-v2-m3`) → `TOP_K` terbaik. Reranker ialah servis luar (Ollama tiada
-  endpoint rerank); boleh dimatikan. Lihat [src/services/rerank.rs](src/services/rerank.rs).
-- **Memori perbualan**: sejarah sesi disimpan dalam jadual `messages` PostgreSQL (sama DB).
-  Permintaan dengan `session_id` memuat `MEMORY_TURNS` giliran terakhir ke dalam prompt,
-  membolehkan soalan susulan. Lihat [src/services/memory.rs](src/services/memory.rs).
-- **Metadata sidecar**: metadata dokumen dibaca dari fail `<dokumen>.meta.json`, disimpan
-  pada jadual `documents`, dan menapis carian melalui corak SQL `($n IS NULL OR col = $n)`
-  (tiada SQL dinamik). Lihat [src/services/metadata.rs](src/services/metadata.rs) &
-  [Metadata dokumen](#metadata-dokumen).
-- **Migrasi DB berstruktur**: skema diuruskan oleh migrasi sqlx terbenam ([migrations/](migrations/)),
-  dijejak dalam `_sqlx_migrations`. Hibrid: migrasi statik untuk struktur teras, +
-  penyelarasan runtime untuk `EMBED_DIM`/`FTS_CONFIG` bukan-lalai (kerana migrasi statik
-  tak boleh terima parameter). Lihat `db::run_migrations`.
-- **Dimensi embedding & FTS boleh konfig** (`EMBED_DIM`/`FTS_CONFIG`): skema diselaraskan
-  automatik selepas migrasi; tukar dimensi mengosongkan chunk lama (perlu re-ingest).
-  Lihat `db::reconcile_embedding_dim` & `db::reconcile_fts_config`.
-- **Penapis thinking**: blok `<think>...</think>` Qwen3 ditapis daripada jawapan (termasuk
-  semasa streaming, merentas potongan token). Lihat `generate::strip_thinking` & `ThinkFilter`.
-```
-
+- **No `unwrap()`/`expect()`** in production code — all errors handled via
+  `?`, `match`, and `AppError` types (thiserror for domain, anyhow for upper layers).
+- **All I/O async** (tokio): DB, HTTP to Ollama, and file reads. Blocking operations
+  (PDF/DOCX reading) run in `spawn_blocking`.
+- **Runtime sqlx queries** (not compile-time `query!` macro) so it can compile without
+  a live DB. Can be switched to compile-time macros if strict checking is wanted.
+- **Real-token chunking**: chunk size counted in BPE tokens (`cl100k_base` via
+  tiktoken-rs), not word count — more consistent with model context limits and more
+  accurate for mixed text (BM, punctuation). Tokenizer is embedded in the binary (no
+  external files) and loaded once into `AppState`. See [src/services/chunk.rs](src/services/chunk.rs).
+- **Rich citations**: each chunk records page number (PDF extracted per-page
+  via `extract_text_by_pages`); references in `sources[]` include `page` + actual `snippet`
+  text for verifiability. Non-page formats (TXT/MD/DOCX) → `page` null.
+- **Idempotent ingest**: documents identified by file path (`UNIQUE`); re-ingest
+  deletes old chunks in one transaction before inserting new ones.
+- **Batch ingest**: embeddings & INSERTs done in batches (`EMBED_BATCH_SIZE`)
+  to reduce HTTP round-trips to Ollama and DB overhead.
+- **Incremental ingest**: unchanged files skipped based on size + mtime
+  (`size_bytes`, `mtime_unix`); use `?force=true` to force re-ingest.
+- **Recursive ingest**: `DOCS_DIR` traversed including subfolders (explicit stack, not
+  async recursion); hidden folders skipped. See `list_supported_files`.
+- **Retry + backoff for Ollama**: calls to Ollama & reranker are retried for transient
+  errors (timeout/connect/5xx/429) with exponential backoff (`OLLAMA_MAX_RETRIES`,
+  `OLLAMA_RETRY_BASE_MS`); 4xx errors are not retried. For `/chat/stream`, only the
+  initial call is retried. See [src/services/retry.rs](src/services/retry.rs).
+- **Two-tier auth**: API key middleware (`Authorization: Bearer`) with user role
+  (`API_KEY`) vs admin (`ADMIN_API_KEY`); admin ⊇ user; admin falls back to
+  `API_KEY` if not set. Constant-time comparison; `/health` & frontend are open.
+  See [src/auth.rs](src/auth.rs).
+- **Rate limiting & body size**: fixed-window per-IP middleware (`RATE_LIMIT_RPM`, → 429 if
+  exceeded) + `DefaultBodyLimit` (`MAX_BODY_BYTES`). No external dependency; fail-safe
+  (allow) if the key is poisoned. See [src/ratelimit.rs](src/ratelimit.rs).
+- **Graceful shutdown**: server handles **SIGTERM** (systemd) & **Ctrl-C**, completing
+  in-flight requests before exiting (`axum ... with_graceful_shutdown`). See `main::shutdown_signal`.
+- **Prompt injection mitigation**: untrusted input (document content, questions, history)
+  is sanitized — fake delimiter lines (`=== ... ===`) are stripped so they can't spoof
+  prompt structure — and system instructions assert content is **DATA, not instructions**.
+  See `generate::sanitize_untrusted` (+ tests).
+- **Relevance guardrail (anti-hallucination)**: before calling the LLM, system checks whether
+  retrieved context is relevant enough — using reranker score (`RELEVANCE_MIN_RERANK`) or cosine
+  distance (`RELEVANCE_MAX_DISTANCE`). If below threshold, immediately returns "not found in
+  TSUYU documents" **without calling LLM** — deterministically prevents out-of-context answers.
+  Combined with prompt instruction "use ONLY context". See `chat::nilai_relevan` (+ tests)
+  & [Anti-hallucination guardrails](#anti-hallucination-guardrails).
+- **Metrics & observability**: atomic counters (`AtomicU64`) in `AppState` instrumented on
+  the chat/ingest pipeline (counts, errors, retrieval/generation times); exposed as
+  Prometheus text at `GET /metrics` — no Prometheus crate. See [src/metrics.rs](src/metrics.rs).
+- **Document management**: `GET /documents` (list + chunk count) and
+  `DELETE /documents/:id` (delete + cascade chunks). Frontend has a simple panel for this.
+- **Embeddings as text literals** `'[...]'::vector` — see `db::vector_literal()`.
+- **Hybrid search**: combines vector (pgvector) + keyword (`tsvector`/GIN, auto-generated)
+  search using **Reciprocal Rank Fusion** — no separate BM25 engine, stays single DB.
+  RRF logic is a pure function with tests. See [src/services/retrieve.rs](src/services/retrieve.rs).
+- **Two-stage reranking**: broad retrieval (`RETRIEVE_N`) → cross-encoder
+  (`bge-reranker-v2-m3`) → best `TOP_K`. Reranker is an external service (Ollama has no
+  rerank endpoint); can be disabled. See [src/services/rerank.rs](src/services/rerank.rs).
+- **Conversation memory**: session history stored in the `messages` PostgreSQL table (same DB).
+  Requests with `session_id` load the last `MEMORY_TURNS` turns into the prompt,
+  enabling follow-up questions. See [src/services/memory.rs](src/services/memory.rs).
+- **Sidecar metadata**: document metadata read from `<document>.meta.json` files, stored
+  in the `documents` table, and filters searches via the SQL pattern
+  `($n IS NULL OR col = $n)` (no dynamic SQL). See [src/services/metadata.rs](src/services/metadata.rs)
+  & [Metadata](#metadata).
+- **Structured DB migrations**: schema managed by embedded sqlx migrations ([migrations/](migrations/)),
+  tracked in `_sqlx_migrations`. Hybrid: static migrations for core structure +
+  runtime reconciliation for non-default `EMBED_DIM`/`FTS_CONFIG` (since static migrations
+  can't take parameters). See `db::run_migrations`.
+- **Configurable embedding dimensions & FTS** (`EMBED_DIM`/`FTS_CONFIG`): schema is
+  reconciled automatically after migration; changing dimension clears old chunks (re-ingest needed).
+  See `db::reconcile_embedding_dim` & `db::reconcile_fts_config`.
+- **Thinking filter**: Qwen3's `<think>...</think>` blocks are stripped from answers (including
+  during streaming, across token boundaries). See `generate::strip_thinking` & `ThinkFilter`.
